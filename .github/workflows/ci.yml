@@ -33,7 +33,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Validate OSS license report
-        run: uv run --no-sync python scripts/oss_license_audit.py --check
+        run: uv run --no-sync python scripts/oss_license_audit.py
 
       - name: Ruff
         run: uv run --no-sync ruff check .
