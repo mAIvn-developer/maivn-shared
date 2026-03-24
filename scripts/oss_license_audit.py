@@ -429,10 +429,18 @@ def build_elections_report(
     return "\n".join(lines) + "\n"
 
 
+_DATE_LINE_RE = re.compile(r"^\*\*(?:Report )?Date\*\*:.*$", re.MULTILINE)
+
+
+def _strip_date_lines(text: str) -> str:
+    """Remove date lines so comparisons are not affected by the current date."""
+    return _DATE_LINE_RE.sub("", text)
+
+
 def ensure_report(path: Path, content: str, check_only: bool) -> bool:
     existing = path.read_text(encoding="utf-8") if path.exists() else None
     if check_only:
-        return existing == content
+        return _strip_date_lines(existing or "") == _strip_date_lines(content)
     path.write_text(content, encoding="utf-8")
     return True
 
