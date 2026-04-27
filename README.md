@@ -1,10 +1,10 @@
 # maivn-shared
 
-Shared contracts, models, utilities, and logging primitives for the Maivn platform.
+Shared contracts, models, utilities, and logging primitives for the mAIvn platform.
 
 ## Overview
 
-`maivn-shared` is the public shared package used by the Maivn SDK and service repos. It provides
+`maivn-shared` is the public shared package used by the mAIvn SDK and service repos. It provides
 the shared domain entities, configuration models, serialization helpers, event contracts, and
 logging abstractions that need to stay consistent across the platform.
 
