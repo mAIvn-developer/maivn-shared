@@ -17,6 +17,7 @@ from .messages import (
     RedactedMessage,
     _normalize_known_pii_values,
 )
+from .pii_whitelist import PIIWhitelist
 from .tool_spec import ToolSpec
 
 # MARK: Session Request
@@ -192,6 +193,15 @@ class SessionRequest(BaseModel):
     private_data: dict[str, Any] | None = Field(
         default=None,
         description="Private user-provided context data for resolving data dependencies.",
+    )
+    pii_whitelist: PIIWhitelist | None = Field(
+        default=None,
+        description=(
+            "Optional PII whitelist that suppresses redaction of approved spans. "
+            "Applied at L1 ingest, L2 tool-result scan, and audited end-to-end. "
+            "Use ``phi_mode=True`` to forbid HIPAA Safe Harbor entity_type "
+            "entries when handling PHI."
+        ),
     )
     interrupt_data_keys: list[str] | None = Field(
         default=None,

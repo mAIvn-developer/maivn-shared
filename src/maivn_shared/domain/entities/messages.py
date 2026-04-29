@@ -22,6 +22,8 @@ from langchain_core.messages import (
 )
 from pydantic import BaseModel, ConfigDict, Field
 
+from .pii_whitelist import PIIWhitelist
+
 # MARK: - Private Data Model
 
 
@@ -120,10 +122,20 @@ class RedactedMessage(BaseMessage):
 
     Stored as type="redacted" for internal processing and mapped to HumanMessage
     at LLM invocation time for provider compatibility.
+
+    Args:
+        content: Raw user text. PII detection runs on this content.
+        known_pii_values: Optional list of known PII to seed redaction (raw
+            strings or ``PrivateData`` objects).
+        pii_whitelist: Optional ``PIIWhitelist`` describing entity categories,
+            literal values, or regex patterns whose detected spans should be
+            left in cleartext. Whitelist application is audited end-to-end.
+        attachments: Optional list of attachment payloads.
     """
 
     type: str = "redacted"
     known_pii_values: list[str | PrivateData] | None = None
+    pii_whitelist: PIIWhitelist | None = None
 
     def __init__(
         self,
@@ -134,6 +146,7 @@ class RedactedMessage(BaseMessage):
     ) -> None:
         additional_kwargs = _normalize_additional_kwargs(kwargs.pop("additional_kwargs", None))
         known_pii_values = _normalize_known_pii_values(kwargs.pop("known_pii_values", None))
+        pii_whitelist = _normalize_pii_whitelist(kwargs.pop("pii_whitelist", None))
         raw_attachments = _collect_raw_attachments(
             additional_kwargs=additional_kwargs,
             attachments=attachments,
@@ -144,6 +157,7 @@ class RedactedMessage(BaseMessage):
             content=content,
             additional_kwargs=additional_kwargs,
             known_pii_values=known_pii_values,
+            pii_whitelist=pii_whitelist,
             **kwargs,
         )
 
@@ -155,6 +169,16 @@ def _normalize_additional_kwargs(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return dict(value)
     return {}
+
+
+def _normalize_pii_whitelist(value: Any) -> PIIWhitelist | None:
+    if value is None:
+        return None
+    if isinstance(value, PIIWhitelist):
+        return value
+    if isinstance(value, dict):
+        return PIIWhitelist.model_validate(value)
+    raise TypeError("pii_whitelist must be a PIIWhitelist instance, dict, or None")
 
 
 def _normalize_known_pii_values(value: Any) -> list[str | PrivateData] | None:

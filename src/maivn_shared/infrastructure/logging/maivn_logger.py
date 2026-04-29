@@ -160,12 +160,19 @@ class MaivnLogger:
         stack_trace: str | None = None,
         **metadata: Any,
     ) -> None:
-        """Log error with full context and structured data."""
+        """Log error with full context and structured data.
+
+        Mirrors ``error_message`` into ``message`` so the rendered log line
+        shows the actual error text rather than the generic
+        ``"error event in <component>"`` fallback used by
+        :func:`_write_structured_log` when ``data["message"]`` is missing.
+        """
         self._write_structured_log(
             level="ERROR",
             component=component,
             event="error",
             data={
+                "message": error_message,
                 "error_type": error_type,
                 "error_message": error_message,
                 "stack_trace": stack_trace,

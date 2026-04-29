@@ -35,6 +35,13 @@ from .messages import (
     ToolMessage,
 )
 
+# MARK: PII Whitelist
+from .pii_whitelist import (
+    HIPAA_SAFE_HARBOR_CATEGORIES,
+    PIIWhitelist,
+    PIIWhitelistEntry,
+)
+
 # MARK: Session
 from .session import (
     SWARM_AGENT_INVOCATION_METADATA_KEY,
@@ -73,6 +80,10 @@ __all__ = [
     "RedactedMessage",
     "SystemMessage",
     "ToolMessage",
+    # MARK: - PII Whitelist
+    "HIPAA_SAFE_HARBOR_CATEGORIES",
+    "PIIWhitelist",
+    "PIIWhitelistEntry",
     # MARK: - Memory Config
     "MemoryConfig",
     "MemoryInsightExtractionConfig",

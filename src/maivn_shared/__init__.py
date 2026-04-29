@@ -51,6 +51,7 @@ from .core import (
     create_uuid,
 )
 from .domain.entities import (
+    HIPAA_SAFE_HARBOR_CATEGORIES,
     SWARM_AGENT_INVOCATION_METADATA_KEY,
     SWARM_INVOCATION_INTENT_METADATA_KEY,
     AgentDependency,
@@ -71,6 +72,8 @@ from .domain.entities import (
     MemoryRetrievalConfig,
     MemorySharingScope,
     MemorySkillExtractionConfig,
+    PIIWhitelist,
+    PIIWhitelistEntry,
     PrivateData,
     RedactedMessage,
     RedactionPreviewRequest,
@@ -194,6 +197,10 @@ __all__ = [
     "AIMessage",
     "SystemMessage",
     "ToolMessage",
+    # Domain - Entities - PII Whitelist
+    "HIPAA_SAFE_HARBOR_CATEGORIES",
+    "PIIWhitelist",
+    "PIIWhitelistEntry",
     # Domain - Entities - Dependencies
     "BaseDependency",
     "AgentDependency",
