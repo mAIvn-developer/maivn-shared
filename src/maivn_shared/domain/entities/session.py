@@ -18,6 +18,15 @@ from .messages import (
     _normalize_known_pii_values,
 )
 from .pii_whitelist import PIIWhitelist
+from .session_config import (
+    MemoryAssetsConfig,
+    SessionExecutionConfig,
+    SessionOrchestrationConfig,
+    StructuredOutputConfig,
+    SwarmConfig,
+    SystemToolsConfig,
+    is_reserved_session_config_metadata_key,
+)
 from .tool_spec import ToolSpec
 
 # MARK: Session Request
@@ -135,7 +144,7 @@ class SessionRequest(BaseModel):
         default=None,
         description=(
             "Optional application metadata to associate with the session. "
-            "Reserved memory-control keys are not allowed here; use memory_config instead."
+            "Reserved runtime-control keys are not allowed here; use typed config fields instead."
         ),
     )
     memory_config: MemoryConfig | None = Field(
@@ -144,6 +153,30 @@ class SessionRequest(BaseModel):
             "Optional typed memory configuration for retrieval, summarization, "
             "and persistence behavior."
         ),
+    )
+    execution_config: SessionExecutionConfig | None = Field(
+        default=None,
+        description="Typed SDK execution metadata such as agent identity and timeout.",
+    )
+    system_tools_config: SystemToolsConfig | None = Field(
+        default=None,
+        description="Typed server-side system tool availability and approval controls.",
+    )
+    structured_output_config: StructuredOutputConfig | None = Field(
+        default=None,
+        description="Typed structured-output transport intent.",
+    )
+    orchestration_config: SessionOrchestrationConfig | None = Field(
+        default=None,
+        description="Typed orchestration loop controls.",
+    )
+    memory_assets_config: MemoryAssetsConfig | None = Field(
+        default=None,
+        description="Typed user-defined memory skills and bound resources.",
+    )
+    swarm_config: SwarmConfig | None = Field(
+        default=None,
+        description="Typed swarm orchestration transport configuration.",
     )
     force_final_tool: bool = Field(
         default=False,
@@ -222,17 +255,28 @@ class SessionRequest(BaseModel):
 
     @field_validator("metadata")
     @classmethod
-    def _reject_reserved_memory_metadata_keys(cls, value: Any) -> Any:
+    def _reject_reserved_config_metadata_keys(cls, value: Any) -> Any:
         if value is None or not isinstance(value, dict):
             return value
-        reserved_keys = sorted(
+        reserved_memory_keys = sorted(
             key for key in value if isinstance(key, str) and is_reserved_memory_metadata_key(key)
         )
-        if reserved_keys:
-            joined = ", ".join(reserved_keys)
+        if reserved_memory_keys:
+            joined = ", ".join(reserved_memory_keys)
             raise ValueError(
                 "Reserved memory metadata keys are not allowed in metadata; "
                 f"use memory_config instead ({joined})"
+            )
+        reserved_session_keys = sorted(
+            key
+            for key in value
+            if isinstance(key, str) and is_reserved_session_config_metadata_key(key)
+        )
+        if reserved_session_keys:
+            joined = ", ".join(reserved_session_keys)
+            raise ValueError(
+                "Reserved session-control metadata keys are not allowed in metadata; "
+                f"use typed session config fields instead ({joined})"
             )
         return value
 

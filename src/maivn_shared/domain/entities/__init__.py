@@ -55,6 +55,21 @@ from .session import (
     ToolResumePayload,
 )
 
+# MARK: Session Config
+from .session_config import (
+    MemoryAssetsConfig,
+    MemoryResourceConfig,
+    MemorySkillConfig,
+    NestedSynthesisMode,
+    SessionExecutionConfig,
+    SessionOrchestrationConfig,
+    StructuredOutputConfig,
+    SwarmAgentConfig,
+    SwarmConfig,
+    SystemToolsConfig,
+    apply_session_configs_to_metadata,
+)
+
 # MARK: Tool Execution
 from .tool_execution import ToolCall, ToolExecutionResult
 
@@ -102,6 +117,18 @@ __all__ = [
     "SessionStartRequest",
     "SessionStartupResponse",
     "ToolResumePayload",
+    # MARK: - Session Config
+    "MemoryAssetsConfig",
+    "MemoryResourceConfig",
+    "MemorySkillConfig",
+    "NestedSynthesisMode",
+    "SessionExecutionConfig",
+    "SessionOrchestrationConfig",
+    "StructuredOutputConfig",
+    "SwarmAgentConfig",
+    "SwarmConfig",
+    "SystemToolsConfig",
+    "apply_session_configs_to_metadata",
     # MARK: - Tool Execution
     "ToolCall",
     "ToolExecutionResult",

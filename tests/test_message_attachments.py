@@ -191,3 +191,16 @@ def test_session_request_rejects_reserved_memory_metadata_keys() -> None:
             messages=[],
             metadata={"memory_level": "glimpse"},
         )
+
+
+def test_session_request_rejects_reserved_session_control_metadata_keys() -> None:
+    with pytest.raises(ValueError, match="use typed session config fields instead"):
+        SessionRequest(
+            messages=[],
+            metadata={
+                "allowed_system_tools": ["web_search"],
+                "allow_reevaluate_loop": True,
+                "client_timezone": "America/Chicago",
+                "max_orchestration_cycles": 2,
+            },
+        )
