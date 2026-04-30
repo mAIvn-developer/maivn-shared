@@ -19,6 +19,19 @@ from .entities.session import (
     SessionResponse,
     SessionStartupResponse,
 )
+from .entities.session_config import (
+    MemoryAssetsConfig,
+    MemoryResourceConfig,
+    MemorySkillConfig,
+    NestedSynthesisMode,
+    SessionExecutionConfig,
+    SessionOrchestrationConfig,
+    StructuredOutputConfig,
+    SwarmAgentConfig,
+    SwarmConfig,
+    SystemToolsConfig,
+    apply_session_configs_to_metadata,
+)
 from .entities.tool_execution import ToolCall, ToolExecutionResult
 from .entities.tool_spec import ToolSpec, ToolType
 
@@ -35,17 +48,28 @@ from .exceptions import (
 __all__ = [
     # MARK: - Entities
     "MemoryConfig",
+    "MemoryAssetsConfig",
     "MemoryInsightExtractionConfig",
     "MemoryLevel",
     "MemoryPersistenceMode",
+    "MemoryResourceConfig",
     "MemoryRetrievalConfig",
     "MemorySharingScope",
+    "MemorySkillConfig",
     "MemorySkillExtractionConfig",
+    "NestedSynthesisMode",
     "RedactionPreviewRequest",
     "RedactionPreviewResponse",
+    "SessionExecutionConfig",
+    "SessionOrchestrationConfig",
     "SessionRequest",
     "SessionResponse",
     "SessionStartupResponse",
+    "StructuredOutputConfig",
+    "SwarmAgentConfig",
+    "SwarmConfig",
+    "SystemToolsConfig",
+    "apply_session_configs_to_metadata",
     "ToolCall",
     "ToolExecutionResult",
     "ToolSpec",
