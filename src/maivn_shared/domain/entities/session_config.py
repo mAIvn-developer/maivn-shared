@@ -533,6 +533,11 @@ class SwarmAgentConfig(BaseModel):
     included_nested_synthesis_guidance: str | None = None
     has_final_tool: bool = False
     invocation_tool_id: str | None = None
+    invokes_via_dependency: list[str] = Field(default_factory=list)
+    """Names of swarm-member agents this agent will auto-invoke via
+    ``@depends_on_agent`` on one of its tools. The orchestrator uses this to
+    avoid scheduling a redundant separate stage for an agent that's already
+    going to be invoked as a tool dependency."""
     memory_config: MemoryConfig | None = None
     memory_defined_skills: list[MemorySkillConfig] = Field(default_factory=list)
     memory_bound_resources: list[MemoryResourceConfig] = Field(default_factory=list)
