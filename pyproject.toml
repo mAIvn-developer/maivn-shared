@@ -4,22 +4,26 @@ build-backend = "hatchling.build"
 
 [project]
 name = "maivn-shared"
-version = "0.1.0"
-description = "Shared utilities and core components for Maivn"
+dynamic = ["version"]
+description = "Shared contracts, models, and utilities for the mAIvn platform"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Chad Heathcote", email = "developer@maivn.io" }]
-keywords = ["maivn", "shared", "utilities"]
+keywords = ["maivn", "shared", "utilities", "ai", "agents"]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
+
 dependencies = [
     # Shared runtime
     "httpx>=0.28.1",
@@ -28,12 +32,21 @@ dependencies = [
     "pydantic>=2.13.3",
 ]
 
+[project.urls]
+Homepage = "https://maivn.io"
+Repository = "https://github.com/mAIvn-developer/maivn-shared"
+Issues = "https://github.com/mAIvn-developer/maivn-shared/issues"
+Changelog = "https://github.com/mAIvn-developer/maivn-shared/blob/master/CHANGELOG.md"
+
 [dependency-groups]
 dev = [
     "pyright>=1.1.409",
     "pytest>=9.0.3",
     "ruff>=0.15.12,<1",
 ]
+
+[tool.hatch.version]
+path = "src/maivn_shared/__version__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/maivn_shared"]
