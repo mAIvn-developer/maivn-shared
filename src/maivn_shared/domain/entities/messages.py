@@ -105,6 +105,7 @@ class HumanMessage(LangChainHumanMessage):
         content: Any,
         *,
         attachments: list[dict[str, Any]] | None = None,
+        allow_attachment_file_paths: bool = True,
         **kwargs: Any,
     ) -> None:
         additional_kwargs = _normalize_additional_kwargs(kwargs.pop("additional_kwargs", None))
@@ -113,7 +114,10 @@ class HumanMessage(LangChainHumanMessage):
             attachments=attachments,
         )
         if raw_attachments:
-            additional_kwargs["attachments"] = _normalize_attachments(raw_attachments)
+            additional_kwargs["attachments"] = _normalize_attachments(
+                raw_attachments,
+                allow_file_paths=allow_attachment_file_paths,
+            )
         super().__init__(content=content, additional_kwargs=additional_kwargs, **kwargs)
 
 
@@ -142,6 +146,7 @@ class RedactedMessage(BaseMessage):
         content: Any,
         *,
         attachments: list[dict[str, Any]] | None = None,
+        allow_attachment_file_paths: bool = True,
         **kwargs: Any,
     ) -> None:
         additional_kwargs = _normalize_additional_kwargs(kwargs.pop("additional_kwargs", None))
@@ -152,7 +157,10 @@ class RedactedMessage(BaseMessage):
             attachments=attachments,
         )
         if raw_attachments:
-            additional_kwargs["attachments"] = _normalize_attachments(raw_attachments)
+            additional_kwargs["attachments"] = _normalize_attachments(
+                raw_attachments,
+                allow_file_paths=allow_attachment_file_paths,
+            )
         super().__init__(
             content=content,
             additional_kwargs=additional_kwargs,
@@ -249,17 +257,21 @@ def _collect_raw_attachments(
     return raw
 
 
-def _normalize_attachments(raw_attachments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _normalize_attachments(
+    raw_attachments: list[dict[str, Any]],
+    *,
+    allow_file_paths: bool,
+) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for attachment in raw_attachments:
-        normalized.append(_normalize_attachment(attachment))
+        normalized.append(_normalize_attachment(attachment, allow_file_paths=allow_file_paths))
     return normalized
 
 
-def _normalize_attachment(attachment: dict[str, Any]) -> dict[str, Any]:
+def _normalize_attachment(attachment: dict[str, Any], *, allow_file_paths: bool) -> dict[str, Any]:
     payload = dict(attachment)
 
-    content_bytes = _extract_attachment_bytes(payload)
+    content_bytes = _extract_attachment_bytes(payload, allow_file_paths=allow_file_paths)
     if not content_bytes:
         raise ValueError("Attachment content is required")
     if len(content_bytes) > _MAX_ATTACHMENT_BYTES:
@@ -287,7 +299,7 @@ def _normalize_attachment(attachment: dict[str, Any]) -> dict[str, Any]:
     return output
 
 
-def _extract_attachment_bytes(payload: dict[str, Any]) -> bytes:
+def _extract_attachment_bytes(payload: dict[str, Any], *, allow_file_paths: bool) -> bytes:
     content_base64 = payload.get("content_base64")
     if isinstance(content_base64, str) and content_base64.strip():
         try:
@@ -314,6 +326,11 @@ def _extract_attachment_bytes(payload: dict[str, Any]) -> bytes:
     if isinstance(file_value, bytearray):
         return bytes(file_value)
     if isinstance(file_value, str | Path):
+        if not allow_file_paths:
+            raise ValueError(
+                "Attachment file paths are only allowed for local constructors; "
+                "wire payloads must use content_base64 or text_content."
+            )
         file_path = Path(file_value)
         if file_path.exists() and file_path.is_file():
             return file_path.read_bytes()
