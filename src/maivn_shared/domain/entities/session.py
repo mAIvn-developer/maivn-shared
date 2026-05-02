@@ -110,6 +110,7 @@ def _coerce_human_or_redacted_message(value: Any) -> BaseMessage | Any:
         return RedactedMessage(
             content=content,
             attachments=normalized_attachments,
+            allow_attachment_file_paths=False,
             additional_kwargs=additional_kwargs,
             known_pii_values=payload.get("known_pii_values"),
             **common_kwargs,
@@ -118,6 +119,7 @@ def _coerce_human_or_redacted_message(value: Any) -> BaseMessage | Any:
     return HumanMessage(
         content=content,
         attachments=normalized_attachments,
+        allow_attachment_file_paths=False,
         additional_kwargs=additional_kwargs,
         **common_kwargs,
     )
@@ -339,6 +341,25 @@ class RedactionPreviewRequest(BaseModel):
             "Accepts raw strings or PrivateData objects for enhanced metadata."
         ),
     )
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def _normalize_redacted_message(cls, value: Any) -> Any:
+        if isinstance(value, RedactedMessage):
+            return value
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        content = payload.pop("content", "")
+        attachments = payload.pop("attachments", None)
+        additional_kwargs = payload.pop("additional_kwargs", None)
+        return RedactedMessage(
+            content=content,
+            attachments=attachments if isinstance(attachments, list) else None,
+            allow_attachment_file_paths=False,
+            additional_kwargs=additional_kwargs,
+            **payload,
+        )
 
     @field_validator("known_pii_values", mode="before")
     @classmethod

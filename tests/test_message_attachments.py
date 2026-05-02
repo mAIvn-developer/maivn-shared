@@ -134,6 +134,24 @@ def test_session_request_normalizes_human_message_attachments() -> None:
     assert base64.b64decode(attachments[0]["content_base64"]) == b"from wire payload"
 
 
+def test_session_request_rejects_attachment_file_path_from_payload(tmp_path) -> None:
+    path = tmp_path / "server-secret.txt"
+    path.write_text("do not read", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="file paths"):
+        SessionRequest.model_validate(
+            {
+                "messages": [
+                    {
+                        "type": "human",
+                        "content": "Attach this.",
+                        "attachments": [{"file": str(path)}],
+                    }
+                ]
+            }
+        )
+
+
 def test_session_request_normalizes_redacted_message_attachments() -> None:
     request = SessionRequest.model_validate(
         {
@@ -161,6 +179,22 @@ def test_session_request_normalizes_redacted_message_attachments() -> None:
     assert len(attachments) == 1
     assert base64.b64decode(attachments[0]["content_base64"]) == b"classified payload"
     assert payload["additional_kwargs"]["metadata"]["message_type"] == "redacted"
+
+
+def test_redaction_preview_rejects_attachment_file_path_from_payload(tmp_path) -> None:
+    path = tmp_path / "preview-secret.txt"
+    path.write_text("do not read", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="file paths"):
+        RedactionPreviewRequest.model_validate(
+            {
+                "message": {
+                    "type": "redacted",
+                    "content": "Preview attachment.",
+                    "additional_kwargs": {"attachments": [{"file": str(path)}]},
+                }
+            }
+        )
 
 
 def test_session_request_preserves_redacted_message_known_pii_values_in_payload() -> None:

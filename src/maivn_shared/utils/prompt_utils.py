@@ -27,7 +27,7 @@ def load_prompt(filename: str, package_name: str, **kwargs: Any) -> str:
 
     Use $var or ${var} syntax for variable substitution.
     """
-    normalized_filename = _ensure_md_extension(filename)
+    normalized_filename = _normalize_prompt_filename(filename)
     text = _load_prompt_text(normalized_filename, package_name)
     return render_prompt(text, **kwargs)
 
@@ -196,13 +196,26 @@ def _join_resource_case_insensitive(resource: Any, target_name: str) -> Any:
 # MARK: - Text Processing
 
 
-def _ensure_md_extension(filename: str) -> str:
-    """Ensure filename has .md extension.
+def _normalize_prompt_filename(filename: str) -> str:
+    """Normalize a package-local prompt path and reject traversal.
 
     Args:
         filename: Original filename
 
     Returns:
         Filename with .md extension
+
+    Raises:
+        ValueError: If filename is empty, absolute, or contains traversal segments.
     """
-    return filename if filename.endswith(".md") else f"{filename}.md"
+    candidate = filename.replace("\\", "/").strip()
+    if not candidate:
+        raise ValueError("Prompt filename cannot be empty")
+    if Path(candidate).is_absolute():
+        raise ValueError("Prompt filename must be package-relative")
+
+    parts = candidate.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("Prompt filename must not contain empty or traversal path segments")
+
+    return candidate if candidate.endswith(".md") else f"{candidate}.md"

@@ -15,6 +15,7 @@ import httpx
 from .client import HttpClientProtocol
 
 _DEFAULT_TIMEOUT_SECONDS: float = 600.0
+_MAX_REQUEST_ERROR_MESSAGE_CHARS: int = 200
 
 # MARK: - Exceptions
 
@@ -120,7 +121,7 @@ class HttpClient(HttpClientProtocol):
         except httpx.HTTPStatusError as e:
             raise self._create_http_status_error(e) from e
         except httpx.RequestError as e:
-            raise HttpError(f"Request failed: {e}") from e
+            raise HttpError(self._create_request_error_message(e)) from e
         except Exception as e:
             raise HttpError(f"Unexpected error: {e}") from e
 
@@ -190,10 +191,34 @@ class HttpClient(HttpClientProtocol):
         Returns:
             HttpError with status code and message
         """
+        reason = error.response.reason_phrase.strip()
+        reason_text = f" {reason}" if reason else ""
+        request_summary = self._request_summary(error.request)
         return HttpError(
-            f"HTTP {error.response.status_code}: {error.response.text}",
+            f"HTTP {error.response.status_code}{reason_text}{request_summary}",
             status_code=error.response.status_code,
         )
+
+    def _create_request_error_message(self, error: httpx.RequestError) -> str:
+        """Create a request-error message without leaking URL query parameters."""
+        raw_message = str(error.args[0]) if error.args else type(error).__name__
+        message = self._truncate_error_message(raw_message)
+        return f"Request failed: {message}{self._request_summary(error.request)}"
+
+    @staticmethod
+    def _request_summary(request: httpx.Request | None) -> str:
+        """Return a compact request summary with the query string stripped."""
+        if request is None:
+            return ""
+        safe_url = request.url.copy_with(query=None)
+        return f" ({request.method} {safe_url})"
+
+    @staticmethod
+    def _truncate_error_message(message: str) -> str:
+        """Keep request error messages bounded before callers log them."""
+        if len(message) <= _MAX_REQUEST_ERROR_MESSAGE_CHARS:
+            return message
+        return f"{message[: _MAX_REQUEST_ERROR_MESSAGE_CHARS - 3]}..."
 
 
 # MARK: - Module Exports

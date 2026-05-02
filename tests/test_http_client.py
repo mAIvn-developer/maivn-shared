@@ -87,6 +87,65 @@ def test_http_client_wraps_request_errors(monkeypatch: pytest.MonkeyPatch) -> No
         client.get("https://example.com/fail")
 
 
+def test_http_client_strips_query_params_from_request_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _StubClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+            self.is_closed = False
+
+        def request(self, method: str, url: str, **kwargs) -> httpx.Response:
+            del kwargs
+            request = httpx.Request(method, url)
+            raise httpx.RequestError("network down", request=request)
+
+        def close(self) -> None:
+            self.is_closed = True
+
+    monkeypatch.setattr(httpx, "Client", _StubClient)
+
+    client = HttpClient()
+    with pytest.raises(HttpError) as exc_info:
+        client.get("https://example.com/fail?api_key=secret-token")
+
+    message = str(exc_info.value)
+    assert "api_key" not in message
+    assert "secret-token" not in message
+    assert "https://example.com/fail" in message
+
+
+def test_http_client_hides_response_body_from_status_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _StubClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+            self.is_closed = False
+
+        def request(self, method: str, url: str, **kwargs) -> httpx.Response:
+            del kwargs
+            return httpx.Response(
+                status_code=400,
+                text="private-data-secret",
+                request=httpx.Request(method, url),
+            )
+
+        def close(self) -> None:
+            self.is_closed = True
+
+    monkeypatch.setattr(httpx, "Client", _StubClient)
+
+    client = HttpClient()
+    with pytest.raises(HttpError) as exc_info:
+        client.get("https://example.com/fail?token=secret-token")
+
+    message = str(exc_info.value)
+    assert "private-data-secret" not in message
+    assert "secret-token" not in message
+    assert exc_info.value.status_code == 400
+
+
 def test_http_client_uses_separate_clients_per_thread_for_parallel_requests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
