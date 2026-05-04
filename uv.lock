@@ -290,7 +290,6 @@ wheels = [
 
 [[package]]
 name = "maivn-shared"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
