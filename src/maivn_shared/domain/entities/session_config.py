@@ -9,6 +9,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .memory_config import MemoryConfig, MemorySharingScope
 
 NestedSynthesisMode = Literal["auto", True, False]
+OrchestrationMode = Literal["single_shot_dag", "supervisor_loop", "strict_user_dag", "hybrid"]
+FinalOutputMode = Literal["terminal", "supervised", "aggregator_only"]
+StopStrategy = Literal[
+    "orchestrator_decides",
+    "final_tool_completed",
+    "objective_satisfied",
+    "max_cycles",
+    "blocker_detected",
+]
 
 _SYSTEM_TOOLS_METADATA_KEYS = {
     "allowed_system_tools",
@@ -25,7 +34,14 @@ _EXECUTION_METADATA_KEYS = {
     "timeout",
 }
 _STRUCTURED_OUTPUT_METADATA_KEYS = {"structured_output_intent", "structured_output_model"}
-_ORCHESTRATION_METADATA_KEYS = {"allow_reevaluate_loop", "max_orchestration_cycles"}
+_ORCHESTRATION_METADATA_KEYS = {
+    "allow_followup_actions",
+    "allow_reevaluate_loop",
+    "final_output_mode",
+    "max_orchestration_cycles",
+    "orchestration_mode",
+    "stop_strategy",
+}
 _MEMORY_ASSETS_METADATA_KEYS = {
     "memory_defined_skills",
     "memory_bound_resources",
@@ -318,6 +334,22 @@ class SessionOrchestrationConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    mode: OrchestrationMode | None = Field(
+        default=None,
+        description="How the orchestrator should plan and supervise action batches.",
+    )
+    final_output_mode: FinalOutputMode | None = Field(
+        default=None,
+        description="Whether final tools or final-output agents are terminal or supervised.",
+    )
+    allow_followup_actions: bool | None = Field(
+        default=None,
+        description="Allow the orchestrator to create additional actions after a batch completes.",
+    )
+    stop_strategy: StopStrategy | None = Field(
+        default=None,
+        description="High-level completion strategy used by the orchestrator/runtime.",
+    )
     allow_reevaluate_loop: bool | None = Field(
         default=None,
         description="Allow reevaluate to continue after a complete result is available.",
@@ -328,11 +360,34 @@ class SessionOrchestrationConfig(BaseModel):
         description="Maximum orchestration loop cycles for this request.",
     )
 
+    @field_validator("mode", "final_output_mode", "stop_strategy", mode="before")
+    @classmethod
+    def _normalize_policy_text(cls, value: Any) -> Any:
+        return _normalize_optional_lower_text(value)
+
     def is_configured(self) -> bool:
-        return self.allow_reevaluate_loop is not None or self.max_cycles is not None
+        return any(
+            value is not None
+            for value in (
+                self.mode,
+                self.final_output_mode,
+                self.allow_followup_actions,
+                self.stop_strategy,
+                self.allow_reevaluate_loop,
+                self.max_cycles,
+            )
+        )
 
     def to_metadata_patch(self) -> dict[str, Any]:
         metadata: dict[str, Any] = {}
+        if self.mode is not None:
+            metadata["orchestration_mode"] = self.mode
+        if self.final_output_mode is not None:
+            metadata["final_output_mode"] = self.final_output_mode
+        if self.allow_followup_actions is not None:
+            metadata["allow_followup_actions"] = self.allow_followup_actions
+        if self.stop_strategy is not None:
+            metadata["stop_strategy"] = self.stop_strategy
         if self.allow_reevaluate_loop is not None:
             metadata["allow_reevaluate_loop"] = self.allow_reevaluate_loop
         if self.max_cycles is not None:
@@ -714,13 +769,16 @@ def apply_session_configs_to_metadata(
 
 
 __all__ = [
+    "FinalOutputMode",
     "MemoryAssetsConfig",
     "MemoryResourceConfig",
     "MemorySkillConfig",
     "NestedSynthesisMode",
+    "OrchestrationMode",
     "RESERVED_SESSION_CONFIG_METADATA_KEYS",
     "SessionExecutionConfig",
     "SessionOrchestrationConfig",
+    "StopStrategy",
     "StructuredOutputConfig",
     "SwarmAgentConfig",
     "SwarmConfig",
