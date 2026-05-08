@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from maivn_shared.domain.entities.session_config import (
+    SessionOrchestrationConfig,
     SwarmAgentConfig,
     SwarmConfig,
     normalize_nested_synthesis,
@@ -43,3 +44,28 @@ def test_nested_synthesis_config_models_reject_unsupported_modes(
 ) -> None:
     with pytest.raises(ValidationError):
         model_type.model_validate({"included_nested_synthesis": 1})
+
+
+def test_session_orchestration_config_projects_policy_metadata() -> None:
+    config = SessionOrchestrationConfig(
+        mode="SUPERVISOR_LOOP",
+        final_output_mode="Supervised",
+        allow_followup_actions=True,
+        stop_strategy="objective_satisfied",
+        allow_reevaluate_loop=True,
+        max_cycles=5,
+    )
+
+    assert config.to_metadata_patch() == {
+        "orchestration_mode": "supervisor_loop",
+        "final_output_mode": "supervised",
+        "allow_followup_actions": True,
+        "stop_strategy": "objective_satisfied",
+        "allow_reevaluate_loop": True,
+        "max_orchestration_cycles": 5,
+    }
+
+
+def test_session_orchestration_config_rejects_unknown_policy_modes() -> None:
+    with pytest.raises(ValidationError):
+        SessionOrchestrationConfig(mode="forever")

@@ -57,12 +57,15 @@ from .session import (
 
 # MARK: Session Config
 from .session_config import (
+    FinalOutputMode,
     MemoryAssetsConfig,
     MemoryResourceConfig,
     MemorySkillConfig,
     NestedSynthesisMode,
+    OrchestrationMode,
     SessionExecutionConfig,
     SessionOrchestrationConfig,
+    StopStrategy,
     StructuredOutputConfig,
     SwarmAgentConfig,
     SwarmConfig,
@@ -122,8 +125,11 @@ __all__ = [
     "MemoryResourceConfig",
     "MemorySkillConfig",
     "NestedSynthesisMode",
+    "FinalOutputMode",
+    "OrchestrationMode",
     "SessionExecutionConfig",
     "SessionOrchestrationConfig",
+    "StopStrategy",
     "StructuredOutputConfig",
     "SwarmAgentConfig",
     "SwarmConfig",
