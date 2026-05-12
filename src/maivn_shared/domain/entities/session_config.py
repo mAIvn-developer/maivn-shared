@@ -638,6 +638,7 @@ class SwarmConfig(BaseModel):
     sdk_delivery_mode: str | None = None
     agent_dependency_context: dict[str, Any] | None = None
     agent_dependency_context_keys: list[str] | None = None
+    swarm_has_final_tool: bool = False
 
     @field_validator(
         "swarm_id",
@@ -721,6 +722,8 @@ class SwarmConfig(BaseModel):
             metadata["swarm_agent_dependency_context_keys"] = list(
                 self.agent_dependency_context_keys
             )
+        if self.swarm_has_final_tool:
+            metadata["swarm_has_final_tool"] = True
         return metadata
 
 
