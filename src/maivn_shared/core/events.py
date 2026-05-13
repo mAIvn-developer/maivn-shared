@@ -69,6 +69,18 @@ SYSTEM_TOOL_COMPLETE_EVENT_NAME = "system_tool_complete"
 SYSTEM_TOOL_ERROR_EVENT_NAME = "system_tool_error"
 """Emitted when a system tool encounters an error."""
 
+# MARK: - Hook Events
+
+HOOK_FIRED_EVENT_NAME = "hook_fired"
+"""Emitted each time a developer-registered scope or tool hook callback fires.
+
+Carries the hook's scope ({tool, agent, swarm}), the firing stage
+(``"before"`` / ``"after"``), the callable's display name, and either
+``"completed"`` or ``"failed"`` plus an optional error message. The SDK
+emits one event per hook execution so multiple hooks on the same target
+each surface their own marker in the UI.
+"""
+
 # MARK: - Enrichment Events
 
 ENRICHMENT_EVENT_NAME = "enrichment"
@@ -184,6 +196,8 @@ __all__ = [
     "SYSTEM_TOOL_CHUNK_EVENT_NAME",
     "SYSTEM_TOOL_COMPLETE_EVENT_NAME",
     "SYSTEM_TOOL_ERROR_EVENT_NAME",
+    # Hook Events
+    "HOOK_FIRED_EVENT_NAME",
     # Enrichment Events
     "ENRICHMENT_EVENT_NAME",
     "MEMORY_SUMMARIZING_ENRICHMENT_PHASE",

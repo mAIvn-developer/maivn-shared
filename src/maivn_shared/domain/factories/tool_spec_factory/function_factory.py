@@ -7,8 +7,8 @@ from typing import Any, get_type_hints
 
 from maivn_shared.domain.entities.tool_spec import ToolSpec, ToolType
 
-from .docstring_utils import _extract_function_description, _parse_docstring_args
-from .schema_utils import _build_dataclass_schema, _build_property_schema
+from .docstring_utils import extract_function_description, parse_docstring_args
+from .schema_utils import build_dataclass_schema, build_property_schema
 
 # MARK: - Public API
 
@@ -26,7 +26,7 @@ def build_tool_spec_from_function(
 ) -> ToolSpec:
     """Build a ToolSpec dynamically from an async function."""
     tool_name = name or func.__name__
-    description = _extract_function_description(func)
+    description = extract_function_description(func)
 
     args_schema = _build_args_schema_from_function(func)
     resolved_metadata = _build_metadata(func, metadata)
@@ -51,7 +51,7 @@ def _build_args_schema_from_function(func: Callable[..., Any]) -> dict[str, Any]
     """Build args schema from function signature and type hints."""
     hints = get_type_hints(func, include_extras=True)
     sig = inspect.signature(func)
-    param_docs = _parse_docstring_args(func.__doc__ or "")
+    param_docs = parse_docstring_args(func.__doc__ or "")
 
     properties: dict[str, Any] = {}
     required: list[str] = []
@@ -63,7 +63,7 @@ def _build_args_schema_from_function(func: Callable[..., Any]) -> dict[str, Any]
         param_type = hints.get(param_name, Any)
         param_description = param_docs.get(param_name, "")
 
-        properties[param_name] = _build_property_schema(param_type, param_description)
+        properties[param_name] = build_property_schema(param_type, param_description)
 
         if param.default is inspect.Parameter.empty:
             required.append(param_name)
@@ -78,9 +78,9 @@ def _build_args_schema_from_function(func: Callable[..., Any]) -> dict[str, Any]
 def _build_return_schema_from_type(return_type: Any) -> dict[str, Any]:
     """Build a return schema from a return type annotation."""
     if is_dataclass(return_type) and isinstance(return_type, type):
-        return _build_dataclass_schema(return_type)
+        return build_dataclass_schema(return_type)
 
-    return _build_property_schema(return_type, "")
+    return build_property_schema(return_type, "")
 
 
 # MARK: - Metadata Building

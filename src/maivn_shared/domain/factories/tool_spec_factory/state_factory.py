@@ -4,7 +4,7 @@ from typing import Any, get_args, get_origin, get_type_hints
 
 from maivn_shared.domain.entities.tool_spec import ToolSpec, ToolType
 
-from .schema_utils import _build_property_schema, _unwrap_annotated
+from .schema_utils import build_property_schema, unwrap_annotated
 
 # MARK: - Public API
 
@@ -85,7 +85,7 @@ def _is_not_required(field_type: Any) -> bool:
         return False
 
     # Unwrap Annotated wrapper if present, then check inner type
-    unwrapped, _ = _unwrap_annotated(field_type)
+    unwrapped, _ = unwrap_annotated(field_type)
     origin = get_origin(unwrapped)
     if origin is not None and "NotRequired" in getattr(origin, "__name__", str(origin)):
         return True
@@ -126,7 +126,7 @@ def _build_properties(
 
         field_type = hints[field_name]
         field_doc = field_docs.get(field_name, "")
-        properties[field_name] = _build_property_schema(field_type, field_doc)
+        properties[field_name] = build_property_schema(field_type, field_doc)
 
     return properties
 

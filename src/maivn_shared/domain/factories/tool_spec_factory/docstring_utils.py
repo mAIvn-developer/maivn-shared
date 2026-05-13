@@ -10,7 +10,7 @@ _ARGS_END_MARKERS = ("returns:", "raises:", "note:", "example:")
 # MARK: - Public Functions
 
 
-def _extract_function_description(func: Callable[..., object]) -> str:
+def extract_function_description(func: Callable[..., object]) -> str:
     """Extract the main description from a function's docstring.
 
     Takes the first paragraph before 'Args:' section.
@@ -23,7 +23,7 @@ def _extract_function_description(func: Callable[..., object]) -> str:
     return description or _default_description(func.__name__)
 
 
-def _parse_docstring_args(docstring: str) -> dict[str, str]:
+def parse_docstring_args(docstring: str) -> dict[str, str]:
     """Parse the Args section from a docstring."""
     if not docstring:
         return {}

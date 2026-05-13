@@ -150,7 +150,7 @@ class RedactedMessage(BaseMessage):
         **kwargs: Any,
     ) -> None:
         additional_kwargs = _normalize_additional_kwargs(kwargs.pop("additional_kwargs", None))
-        known_pii_values = _normalize_known_pii_values(kwargs.pop("known_pii_values", None))
+        known_pii_values = normalize_known_pii_values(kwargs.pop("known_pii_values", None))
         pii_whitelist = _normalize_pii_whitelist(kwargs.pop("pii_whitelist", None))
         raw_attachments = _collect_raw_attachments(
             additional_kwargs=additional_kwargs,
@@ -189,7 +189,7 @@ def _normalize_pii_whitelist(value: Any) -> PIIWhitelist | None:
     raise TypeError("pii_whitelist must be a PIIWhitelist instance, dict, or None")
 
 
-def _normalize_known_pii_values(value: Any) -> list[str | PrivateData] | None:
+def normalize_known_pii_values(value: Any) -> list[str | PrivateData] | None:
     if value is None:
         return None
     if not isinstance(value, list):
