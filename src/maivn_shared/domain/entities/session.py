@@ -15,7 +15,7 @@ from .messages import (
     HumanMessage,
     PrivateData,
     RedactedMessage,
-    _normalize_known_pii_values,
+    normalize_known_pii_values,
 )
 from .pii_whitelist import PIIWhitelist
 from .session_config import (
@@ -364,7 +364,7 @@ class RedactionPreviewRequest(BaseModel):
     @field_validator("known_pii_values", mode="before")
     @classmethod
     def _normalize_known_pii_values(cls, value: Any) -> list[str | PrivateData] | None:
-        return _normalize_known_pii_values(value)
+        return normalize_known_pii_values(value)
 
 
 class RedactionPreviewResponse(BaseModel):

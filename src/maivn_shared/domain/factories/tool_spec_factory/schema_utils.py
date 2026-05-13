@@ -7,7 +7,7 @@ from typing import Any, get_args, get_origin, get_type_hints
 # MARK: - Type Unwrapping Utilities
 
 
-def _unwrap_annotated(field_type: Any) -> tuple[Any, str]:
+def unwrap_annotated(field_type: Any) -> tuple[Any, str]:
     """Unwrap Annotated type and extract description if present.
 
     Args:
@@ -60,13 +60,13 @@ def _unwrap_type(field_type: Any, description: str) -> tuple[Any, str]:
     Returns:
         Tuple of (fully_unwrapped_type, description)
     """
-    field_type, annotated_desc = _unwrap_annotated(field_type)
+    field_type, annotated_desc = unwrap_annotated(field_type)
     if annotated_desc and not description:
         description = annotated_desc
 
     field_type = _unwrap_not_required(field_type)
 
-    field_type, nested_desc = _unwrap_annotated(field_type)
+    field_type, nested_desc = unwrap_annotated(field_type)
     if nested_desc and not description:
         description = nested_desc
 
@@ -137,7 +137,7 @@ def _build_list_schema(args: tuple[Any, ...]) -> dict[str, Any]:
     """
     schema: dict[str, Any] = {"type": "array"}
     if args:
-        schema["items"] = _build_property_schema(args[0], "")
+        schema["items"] = build_property_schema(args[0], "")
     return schema
 
 
@@ -176,15 +176,15 @@ def _build_union_schema(args: tuple[Any, ...], description: str) -> dict[str, An
     non_none_args = [arg for arg in args if arg is not type(None)]
 
     if len(non_none_args) == 1:
-        return _build_property_schema(non_none_args[0], description)
+        return build_property_schema(non_none_args[0], description)
 
-    return {"anyOf": [_build_property_schema(arg, "") for arg in non_none_args]}
+    return {"anyOf": [build_property_schema(arg, "") for arg in non_none_args]}
 
 
 # MARK: - Schema Building
 
 
-def _build_property_schema(field_type: Any, description: str) -> dict[str, Any]:
+def build_property_schema(field_type: Any, description: str) -> dict[str, Any]:
     """Build a JSON schema property from a Python type annotation.
 
     Args:
@@ -229,7 +229,7 @@ def _build_property_schema(field_type: Any, description: str) -> dict[str, Any]:
 # MARK: - Dataclass Schema Building
 
 
-def _build_dataclass_schema(dc: type) -> dict[str, Any]:
+def build_dataclass_schema(dc: type) -> dict[str, Any]:
     """Build JSON schema from a dataclass.
 
     Args:
@@ -245,7 +245,7 @@ def _build_dataclass_schema(dc: type) -> dict[str, Any]:
         field_type = hints.get(field.name, field.type)
         field_doc = _extract_field_description(field)
 
-        prop_schema = _build_property_schema(field_type, field_doc)
+        prop_schema = build_property_schema(field_type, field_doc)
         properties[field.name] = prop_schema
 
     return {

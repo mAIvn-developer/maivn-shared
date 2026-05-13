@@ -131,6 +131,12 @@ def _merge_nested_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[
 
 
 def is_reserved_session_config_metadata_key(key: str) -> bool:
+    """Return True if ``key`` is in the reserved session-config namespace.
+
+    Session-config metadata keys (``orchestration_mode``, ``stop_strategy``,
+    etc.) are projected onto the request from the typed config models and
+    cannot be overridden via the free-form ``metadata`` dict.
+    """
     return key.strip() in RESERVED_SESSION_CONFIG_METADATA_KEYS
 
 
@@ -731,6 +737,13 @@ class SwarmConfig(BaseModel):
 
 
 def normalize_nested_synthesis(value: Any) -> NestedSynthesisMode | None:
+    """Coerce user input into the canonical nested-synthesis mode.
+
+    Accepts ``None``, ``bool``, or string forms (``"auto"``, ``"true"``,
+    ``"yes"``, ``"on"``, ``"false"``, etc., case-insensitive). Raises
+    ``ValueError`` for any other shape so callers don't silently fall
+    through to ``"auto"``.
+    """
     if value is None:
         return None
     if isinstance(value, bool):

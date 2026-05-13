@@ -58,6 +58,13 @@ def _merge_nested_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[
 
 
 def is_reserved_memory_metadata_key(key: str) -> bool:
+    """Return True if ``key`` is reserved for server-managed memory metadata.
+
+    Any ``memory_*`` prefix is reserved by default (apart from an allowlisted
+    set used by internal code); a small explicit list covers names that don't
+    start with the prefix. User-supplied metadata that collides with reserved
+    keys is rejected at validation time to prevent silent overrides.
+    """
     normalized = key.strip()
     if not normalized:
         return False

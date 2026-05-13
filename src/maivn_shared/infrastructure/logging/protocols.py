@@ -1,9 +1,23 @@
+"""Structural-typing protocols for the maivn logger surface.
+
+These ``Protocol`` classes describe the minimum logger interface consumers
+can depend on without importing :class:`MaivnLogger` directly. They let
+non-SDK code accept any object that quacks like a logger (real loggers,
+test fakes, the null logger) and stay type-checked.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Literal, Protocol
 
 
 class LoggerProtocol(Protocol):
+    """Minimum logger surface: the five standard log levels plus ``exception``.
+
+    A :class:`logging.Logger`, :class:`MaivnLogger`, or any test stub that
+    declares these methods satisfies this protocol.
+    """
+
     def debug(self, message: str, *args: Any, component: str = "APP", **metadata: Any) -> None: ...
 
     def info(self, message: str, *args: Any, component: str = "APP", **metadata: Any) -> None: ...
@@ -22,6 +36,13 @@ class LoggerProtocol(Protocol):
 
 
 class MetricsLoggerProtocol(LoggerProtocol, Protocol):
+    """Logger that also records structured tool-execution and token-usage metrics.
+
+    Extends :class:`LoggerProtocol` with the two structured-emission methods
+    the SDK uses to track per-tool timing and per-invocation token costs.
+    Implementations that don't want metrics can implement these as no-ops.
+    """
+
     def log_tool_execution(
         self,
         phase: Literal["start", "completed", "failed"],

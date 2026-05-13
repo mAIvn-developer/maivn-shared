@@ -12,7 +12,7 @@ from maivn_shared.domain.entities.session_config import (
 
 
 @pytest.mark.parametrize(
-    ("raw_value", "expected"),
+    "raw_value,expected",
     [
         (None, None),
         (True, True),
@@ -47,9 +47,12 @@ def test_nested_synthesis_config_models_reject_unsupported_modes(
 
 
 def test_session_orchestration_config_projects_policy_metadata() -> None:
+    # Pass case-variant strings to exercise the `mode="before"` normalizer that
+    # lowercases input. The static Literal[...] types only accept the canonical
+    # lowercase form, so silence the type checker for these intentional inputs.
     config = SessionOrchestrationConfig(
-        mode="SUPERVISOR_LOOP",
-        final_output_mode="Supervised",
+        mode="SUPERVISOR_LOOP",  # pyright: ignore[reportArgumentType]
+        final_output_mode="Supervised",  # pyright: ignore[reportArgumentType]
         allow_followup_actions=True,
         stop_strategy="objective_satisfied",
         allow_reevaluate_loop=True,
@@ -67,5 +70,7 @@ def test_session_orchestration_config_projects_policy_metadata() -> None:
 
 
 def test_session_orchestration_config_rejects_unknown_policy_modes() -> None:
+    # "forever" is intentionally not a valid mode; the assertion is that the
+    # validator rejects it. Silence pyright for the deliberately invalid input.
     with pytest.raises(ValidationError):
-        SessionOrchestrationConfig(mode="forever")
+        SessionOrchestrationConfig(mode="forever")  # pyright: ignore[reportArgumentType]
