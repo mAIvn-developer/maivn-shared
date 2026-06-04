@@ -1,17 +1,28 @@
+# pyright: strict
 from __future__ import annotations
 
-from typing import Any, get_args, get_origin, get_type_hints
+from typing import cast
 
-from maivn_shared.domain.entities.tool_spec import ToolSpec, ToolType
+from pydantic import JsonValue
 
-from .schema_utils import build_property_schema, unwrap_annotated
+from ...entities.tool_spec import ToolSpec, ToolType
+from .schema_utils import (
+    JsonSchema,
+    build_object_schema,
+    build_property_schema,
+    type_args,
+    type_hints,
+    type_name,
+    type_origin,
+    unwrap_annotated,
+)
 
 # MARK: - Public API
 
 
 def build_tool_spec_from_state(
     *,
-    state_class: type,
+    state_class: type[object],
     tool_id: str,
     agent_id: str,
     name: str,
@@ -20,12 +31,12 @@ def build_tool_spec_from_state(
     input_fields: list[str] | None = None,
     output_fields: list[str] | None = None,
     required_fields: list[str] | None = None,
-    metadata: dict[str, Any] | None = None,
+    metadata: dict[str, object] | None = None,
     always_execute: bool = False,
     final_tool: bool = False,
 ) -> ToolSpec:
     """Build a ToolSpec dynamically from an agent state TypedDict."""
-    hints = get_type_hints(state_class, include_extras=True)
+    hints = type_hints(state_class)
     field_docs = _extract_field_docs(state_class)
 
     resolved_input_fields = _resolve_input_fields(hints, input_fields, output_fields)
@@ -47,7 +58,7 @@ def build_tool_spec_from_state(
         args_schema=args_schema,
         always_execute=always_execute,
         final_tool=final_tool,
-        metadata=resolved_metadata,
+        metadata=cast(JsonSchema, resolved_metadata),
     )
 
 
@@ -55,7 +66,7 @@ def build_tool_spec_from_state(
 
 
 def _resolve_input_fields(
-    hints: dict[str, Any],
+    hints: dict[str, object],
     input_fields: list[str] | None,
     output_fields: list[str] | None,
 ) -> list[str]:
@@ -68,7 +79,7 @@ def _resolve_input_fields(
 
 
 def _resolve_required_fields(
-    hints: dict[str, Any],
+    hints: dict[str, object],
     input_fields: list[str],
     required_fields: list[str] | None,
 ) -> list[str]:
@@ -79,15 +90,15 @@ def _resolve_required_fields(
     return [f for f in input_fields if not _is_not_required(hints.get(f))]
 
 
-def _is_not_required(field_type: Any) -> bool:
+def _is_not_required(field_type: object | None) -> bool:
     """Check if a field is annotated with NotRequired."""
     if field_type is None:
         return False
 
     # Unwrap Annotated wrapper if present, then check inner type
     unwrapped, _ = unwrap_annotated(field_type)
-    origin = get_origin(unwrapped)
-    if origin is not None and "NotRequired" in getattr(origin, "__name__", str(origin)):
+    origin = type_origin(unwrapped)
+    if origin is not None and "NotRequired" in type_name(origin):
         return True
 
     return False
@@ -97,28 +108,26 @@ def _is_not_required(field_type: Any) -> bool:
 
 
 def _build_args_schema(
-    hints: dict[str, Any],
+    hints: dict[str, object],
     input_fields: list[str],
     required_fields: list[str],
     field_docs: dict[str, str],
-) -> dict[str, Any]:
+) -> JsonSchema:
     """Build args schema from input fields."""
     properties = _build_properties(hints, input_fields, field_docs)
 
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": required_fields,
-    }
+    schema = build_object_schema(properties)
+    schema["required"] = cast(JsonValue, required_fields)
+    return schema
 
 
 def _build_properties(
-    hints: dict[str, Any],
+    hints: dict[str, object],
     fields: list[str],
     field_docs: dict[str, str],
-) -> dict[str, Any]:
+) -> JsonSchema:
     """Build property schemas for given fields."""
-    properties: dict[str, Any] = {}
+    properties: JsonSchema = {}
 
     for field_name in fields:
         if field_name not in hints:
@@ -131,35 +140,32 @@ def _build_properties(
     return properties
 
 
-def _build_return_type_schema(
-    hints: dict[str, Any],
+def _build_return_type_schema_from_fields(
+    hints: dict[str, object],
     output_fields: list[str],
     field_docs: dict[str, str],
-) -> dict[str, Any]:
-    """Build a return type schema for output fields."""
+) -> JsonSchema:
+    """Build a return-type schema from a state's output fields."""
     properties = _build_properties(hints, output_fields, field_docs)
 
-    return {
-        "type": "object",
-        "properties": properties,
-    }
+    return build_object_schema(properties)
 
 
 # MARK: - Metadata Building
 
 
 def _build_metadata(
-    hints: dict[str, Any],
+    hints: dict[str, object],
     output_fields: list[str] | None,
     field_docs: dict[str, str],
-    metadata: dict[str, Any] | None,
-) -> dict[str, Any]:
+    metadata: dict[str, object] | None,
+) -> dict[str, object]:
     """Build metadata dict with output fields if applicable."""
-    resolved_metadata = metadata.copy() if metadata else {}
+    resolved_metadata: dict[str, object] = metadata.copy() if metadata else {}
 
     if output_fields:
         resolved_metadata["output_fields"] = output_fields
-        resolved_metadata["return_type"] = _build_return_type_schema(
+        resolved_metadata["return_type"] = _build_return_type_schema_from_fields(
             hints, output_fields, field_docs
         )
 
@@ -169,9 +175,9 @@ def _build_metadata(
 # MARK: - Documentation Extraction
 
 
-def _extract_field_docs(state_class: type) -> dict[str, str]:
+def _extract_field_docs(state_class: type[object]) -> dict[str, str]:
     """Extract field documentation from Annotated metadata or class docstring."""
-    hints = get_type_hints(state_class, include_extras=True)
+    hints = type_hints(state_class)
 
     field_docs = _extract_annotated_docs(hints)
     _extract_docstring_docs(state_class, hints, field_docs)
@@ -179,16 +185,16 @@ def _extract_field_docs(state_class: type) -> dict[str, str]:
     return field_docs
 
 
-def _extract_annotated_docs(hints: dict[str, Any]) -> dict[str, str]:
+def _extract_annotated_docs(hints: dict[str, object]) -> dict[str, str]:
     """Extract documentation from Annotated type hints."""
     field_docs: dict[str, str] = {}
 
     for field_name, field_type in hints.items():
-        origin = get_origin(field_type)
-        if origin is None or getattr(origin, "__name__", "") != "Annotated":
+        origin = type_origin(field_type)
+        if origin is None or type_name(origin) != "Annotated":
             continue
 
-        args = get_args(field_type)
+        args = type_args(field_type)
         if len(args) <= 1:
             continue
 
@@ -201,8 +207,8 @@ def _extract_annotated_docs(hints: dict[str, Any]) -> dict[str, str]:
 
 
 def _extract_docstring_docs(
-    state_class: type,
-    hints: dict[str, Any],
+    state_class: type[object],
+    hints: dict[str, object],
     field_docs: dict[str, str],
 ) -> None:
     """Extract documentation from class docstring into field_docs."""

@@ -1,3 +1,4 @@
+# pyright: strict
 """HTTP client implementation using httpx.
 
 This module provides a concrete implementation of the HttpClientProtocol
@@ -8,14 +9,24 @@ from __future__ import annotations
 
 import threading
 import weakref
-from typing import Any
+from types import TracebackType
+from typing import cast
 
 import httpx
+from pydantic import JsonValue
+from typing_extensions import override
 
-from .client import HttpClientProtocol
+from .client import HttpClientProtocol, JsonObject
 
 _DEFAULT_TIMEOUT_SECONDS: float = 600.0
-_MAX_REQUEST_ERROR_MESSAGE_CHARS: int = 200
+
+
+# MARK: - Types
+
+
+class _ClientLocal(threading.local):
+    client: httpx.Client | None = None
+
 
 # MARK: - Exceptions
 
@@ -25,7 +36,7 @@ class HttpError(Exception):
 
     def __init__(self, message: str, status_code: int | None = None) -> None:
         super().__init__(message)
-        self.status_code = status_code
+        self.status_code: int | None = status_code
 
 
 # MARK: - HTTP Client
@@ -40,21 +51,22 @@ class HttpClient(HttpClientProtocol):
         Args:
             timeout: Default timeout for requests
         """
-        self._timeout = timeout if timeout is not None else _DEFAULT_TIMEOUT_SECONDS
-        self._clients_lock = threading.RLock()
-        self._thread_local = threading.local()
+        self._timeout: float = timeout if timeout is not None else _DEFAULT_TIMEOUT_SECONDS
+        self._clients_lock: threading.RLock = threading.RLock()
+        self._thread_local: _ClientLocal = _ClientLocal()
         self._clients: weakref.WeakSet[httpx.Client] = weakref.WeakSet()
 
     # MARK: - Public Methods
 
+    @override
     def post(
         self,
         url: str,
         *,
-        json: dict[str, Any] | None = None,
+        json: JsonObject | None = None,
         headers: dict[str, str] | None = None,
         timeout: float | None = None,
-    ) -> dict[str, Any]:
+    ) -> JsonValue:
         """Perform HTTP POST request.
 
         Args:
@@ -71,13 +83,14 @@ class HttpClient(HttpClientProtocol):
         """
         return self._execute_request("POST", url, json=json, headers=headers, timeout=timeout)
 
+    @override
     def get(
         self,
         url: str,
         *,
         headers: dict[str, str] | None = None,
         timeout: float | None = None,
-    ) -> dict[str, Any]:
+    ) -> JsonValue:
         """Perform HTTP GET request.
 
         Args:
@@ -100,10 +113,10 @@ class HttpClient(HttpClientProtocol):
         method: str,
         url: str,
         *,
-        json: dict[str, Any] | None = None,
+        json: JsonObject | None = None,
         headers: dict[str, str] | None = None,
         timeout: float | None = None,
-    ) -> dict[str, Any]:
+    ) -> JsonValue:
         """Execute an HTTP request with unified error handling."""
         request_timeout = timeout if timeout is not None else self._timeout
 
@@ -116,14 +129,14 @@ class HttpClient(HttpClientProtocol):
                 headers=headers,
                 timeout=request_timeout,
             )
-            response.raise_for_status()
+            _ = response.raise_for_status()
             return self._parse_response(response)
         except httpx.HTTPStatusError as e:
             raise self._create_http_status_error(e) from e
         except httpx.RequestError as e:
             raise HttpError(self._create_request_error_message(e)) from e
-        except Exception as e:
-            raise HttpError(f"Unexpected error: {e}") from e
+        except Exception as e:  # noqa: BLE001 - preserve public HttpError wrapping.
+            raise HttpError(f"Unexpected error: {type(e).__name__}") from e
 
     def _create_client(self, timeout: float) -> httpx.Client:
         """Create an httpx client with connection pooling."""
@@ -137,8 +150,8 @@ class HttpClient(HttpClientProtocol):
         )
 
     def _get_client(self) -> httpx.Client:
-        client = getattr(self._thread_local, "client", None)
-        if client is None or getattr(client, "is_closed", False):
+        client = self._thread_local.client
+        if client is None or client.is_closed:
             client = self._create_client(self._timeout)
             self._thread_local.client = client
             with self._clients_lock:
@@ -152,26 +165,30 @@ class HttpClient(HttpClientProtocol):
             self._clients.clear()
 
         for client in clients:
-            if not getattr(client, "is_closed", False):
+            if not client.is_closed:
                 client.close()
 
-        if hasattr(self._thread_local, "client"):
-            del self._thread_local.client
+        self._thread_local.client = None
 
     def __enter__(self) -> HttpClient:
         return self
 
-    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         del exc_type, exc_val, exc_tb
         self.close()
 
     def __del__(self) -> None:
         try:
             self.close()
-        except Exception:
+        except Exception:  # noqa: BLE001 - finalizers must not raise during GC.
             pass
 
-    def _parse_response(self, response: httpx.Response) -> dict[str, Any]:
+    def _parse_response(self, response: httpx.Response) -> JsonValue:
         """Parse HTTP response to JSON.
 
         Args:
@@ -180,7 +197,10 @@ class HttpClient(HttpClientProtocol):
         Returns:
             Parsed JSON data or empty dict if no content
         """
-        return response.json() if response.content else {}
+        if not response.content:
+            return {}
+        parsed = cast(object, response.json())
+        return cast(JsonValue, parsed)
 
     def _create_http_status_error(self, error: httpx.HTTPStatusError) -> HttpError:
         """Create HttpError from httpx HTTPStatusError.
@@ -191,34 +211,14 @@ class HttpClient(HttpClientProtocol):
         Returns:
             HttpError with status code and message
         """
-        reason = error.response.reason_phrase.strip()
-        reason_text = f" {reason}" if reason else ""
-        request_summary = self._request_summary(error.request)
         return HttpError(
-            f"HTTP {error.response.status_code}{reason_text}{request_summary}",
+            f"HTTP {error.response.status_code} response failed.",
             status_code=error.response.status_code,
         )
 
     def _create_request_error_message(self, error: httpx.RequestError) -> str:
-        """Create a request-error message without leaking URL query parameters."""
-        raw_message = str(error.args[0]) if error.args else type(error).__name__
-        message = self._truncate_error_message(raw_message)
-        return f"Request failed: {message}{self._request_summary(error.request)}"
-
-    @staticmethod
-    def _request_summary(request: httpx.Request | None) -> str:
-        """Return a compact request summary with the query string stripped."""
-        if request is None:
-            return ""
-        safe_url = request.url.copy_with(query=None)
-        return f" ({request.method} {safe_url})"
-
-    @staticmethod
-    def _truncate_error_message(message: str) -> str:
-        """Keep request error messages bounded before callers log them."""
-        if len(message) <= _MAX_REQUEST_ERROR_MESSAGE_CHARS:
-            return message
-        return f"{message[: _MAX_REQUEST_ERROR_MESSAGE_CHARS - 3]}..."
+        """Create a request-error message without leaking request details."""
+        return f"Request failed: {type(error).__name__}"
 
 
 # MARK: - Module Exports

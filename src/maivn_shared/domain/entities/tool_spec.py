@@ -1,12 +1,14 @@
+# pyright: strict
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Annotated, Any, Literal
+from typing import ClassVar, Literal, TypeAlias, cast
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    JsonValue,
     SkipValidation,
     field_serializer,
     field_validator,
@@ -14,12 +16,13 @@ from pydantic import (
 
 # MARK: Type Aliases
 
-TypeBaseModel = type[BaseModel]
-ArgsSchema = TypeBaseModel | dict[str, Any]
+TypeBaseModel: TypeAlias = type[BaseModel]
+JsonObject: TypeAlias = dict[str, JsonValue]
+ArgsSchema: TypeAlias = TypeBaseModel | BaseModel | JsonObject
 
 # MARK: Tool Type
 
-ToolType = Literal["func", "model", "agent", "system", "mcp"]
+ToolType = Literal["func", "model", "agent", "system", "mcp", "method"]
 
 # MARK: - Constants
 
@@ -29,7 +32,10 @@ _DEFAULT_PRIVATE_DATA_KEY = "__private_data__"
 class ToolSpec(BaseModel):
     """Specification for a tool that can be executed by an agent."""
 
-    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        populate_by_name=True,
+        arbitrary_types_allowed=True,
+    )
 
     # MARK: - Core Identification
 
@@ -55,7 +61,7 @@ class ToolSpec(BaseModel):
 
     @field_validator("tags", mode="before")
     @classmethod
-    def _coerce_tags(cls, value: Any) -> Any:
+    def _coerce_tags(cls, value: object) -> object:
         if value is None:
             return []
         return value
@@ -66,7 +72,7 @@ class ToolSpec(BaseModel):
         default="func",
         description="Type of tool (function or model)",
     )
-    args_schema: Annotated[ArgsSchema, SkipValidation()] = Field(  # type: ignore
+    args_schema: SkipValidation[ArgsSchema] = Field(
         ...,
         description="Tool schema without $defs, dependencies in properties",
     )
@@ -82,18 +88,18 @@ class ToolSpec(BaseModel):
             "needed for the current request. Common in chat bot scenarios."
         ),
     )
-    final_tool: bool | None = Field(
+    final_tool: bool = Field(
         default=False,
         description="Final output of the tool (if applicable)",
     )
-    metadata: dict[str, Any] | None = Field(
+    metadata: JsonObject | None = Field(
         default_factory=dict,
         description="Additional metadata for the tool",
     )
 
     @field_validator("metadata", mode="before")
     @classmethod
-    def _coerce_metadata(cls, value: Any) -> Any:
+    def _coerce_metadata(cls, value: object) -> object:
         if value is None:
             return {}
         return value
@@ -128,6 +134,13 @@ class ToolSpec(BaseModel):
                 if dep_type == "interrupt" and include_interrupt and name:
                     names.append(name)
                     break
+        for dep_type, _, name in self._iter_return_type_dependencies():
+            if dep_type == "tool" and name:
+                names.append(name)
+            elif dep_type == "data" and include_data and name:
+                names.append(name)
+            elif dep_type == "interrupt" and include_interrupt and name:
+                names.append(name)
         return names
 
     def get_dependency_ids(self) -> list[str]:
@@ -144,41 +157,48 @@ class ToolSpec(BaseModel):
             for dep_type, tool_id, _ in self._iter_dependencies(prop_schema):
                 if dep_type == "tool" and tool_id:
                     ids.append(tool_id)
+        for dep_type, tool_id, _ in self._iter_return_type_dependencies():
+            if dep_type == "tool" and tool_id:
+                ids.append(tool_id)
         return ids
 
     # MARK: - Private Methods
 
-    def _get_schema_properties(self) -> dict[str, Any]:
+    def _get_schema_properties(self) -> JsonObject:
         """Get properties dictionary from args_schema."""
         schema = self._get_args_schema_dict()
-        return schema.get("properties", {})
+        properties = schema.get("properties")
+        if isinstance(properties, dict):
+            return cast(JsonObject, properties)
+        return {}
 
-    def _get_args_schema_dict(self) -> dict[str, Any]:
+    def _get_args_schema_dict(self) -> JsonObject:
         """Return args_schema as a dictionary for inspection."""
         schema = self.args_schema
 
         if isinstance(schema, dict):
             return schema
 
-        if isinstance(schema, type) and issubclass(schema, BaseModel):
+        if isinstance(schema, type):
             return self._model_to_schema(schema)
 
-        if isinstance(schema, BaseModel):
-            return schema.model_json_schema()
+        return cast(JsonObject, schema.model_json_schema())
 
-        return {}
+    def _iter_return_type_dependencies(self) -> Iterator[tuple[str, str | None, str | None]]:
+        schema = self._get_args_schema_dict()
+        yield from self._iter_dependencies(schema.get("return_type"))
 
     @staticmethod
-    def _model_to_schema(model: type[BaseModel]) -> dict[str, Any]:
+    def _model_to_schema(model: TypeBaseModel) -> JsonObject:
         """Convert a Pydantic model class to JSON schema."""
         try:
-            return model.model_json_schema()
+            return cast(JsonObject, model.model_json_schema())
         except AttributeError:
             return {}
 
     @staticmethod
     def _iter_dependencies(
-        prop_schema: Any,
+        prop_schema: object,
     ) -> Iterator[tuple[str, str | None, str | None]]:
         """Iterate over all dependencies in a property schema.
 
@@ -192,41 +212,45 @@ class ToolSpec(BaseModel):
         if not isinstance(prop_schema, dict):
             return
 
-        dep_type = prop_schema.get("type")
+        schema = cast(dict[str, object], prop_schema)
+        dep_type = schema.get("type")
 
         # Direct dependency types
         if dep_type == "tool_dependency":
-            tool_id = prop_schema.get("tool_id")
-            name = prop_schema.get("tool_name") or tool_id
+            tool_id = cast(str | None, schema.get("tool_id"))
+            name = cast(str | None, schema.get("tool_name")) or tool_id
             yield ("tool", tool_id, name)
             return
 
         if dep_type == "data_dependency":
-            data_key = prop_schema.get("data_key") or prop_schema.get("arg_name")
+            data_key = cast(str | None, schema.get("data_key")) or cast(
+                str | None,
+                schema.get("arg_name"),
+            )
             yield ("data", None, data_key or _DEFAULT_PRIVATE_DATA_KEY)
             return
 
         if dep_type == "interrupt_dependency":
-            yield ("interrupt", None, prop_schema.get("interrupt_id"))
+            yield ("interrupt", None, cast(str | None, schema.get("interrupt_id")))
             return
 
         # Handle anyOf/oneOf union types - yield all matches
         for union_key in ("anyOf", "oneOf"):
-            union_schemas = prop_schema.get(union_key)
+            union_schemas = schema.get(union_key)
             if isinstance(union_schemas, list):
-                for sub_schema in union_schemas:
+                for sub_schema in cast(list[object], union_schemas):
                     yield from ToolSpec._iter_dependencies(sub_schema)
 
         # Handle array items: list[UnionType] -> {"type": "array", "items": {...}}
         if dep_type == "array":
-            items_schema = prop_schema.get("items")
+            items_schema = schema.get("items")
             if isinstance(items_schema, dict):
-                yield from ToolSpec._iter_dependencies(items_schema)
+                yield from ToolSpec._iter_dependencies(cast(object, items_schema))
 
         # Handle dict values: dict[str, UnionType] -> {"additionalProperties": {...}}
-        additional_props = prop_schema.get("additionalProperties")
+        additional_props = schema.get("additionalProperties")
         if isinstance(additional_props, dict):
-            yield from ToolSpec._iter_dependencies(additional_props)
+            yield from ToolSpec._iter_dependencies(cast(object, additional_props))
 
     # MARK: - Serializers
 
@@ -235,11 +259,18 @@ class ToolSpec(BaseModel):
         return value
 
     @field_serializer("args_schema", when_used="always")
-    def _serialize_args_schema(self, value: ArgsSchema) -> dict[str, Any] | str | None:
-        if isinstance(value, type) and issubclass(value, BaseModel):
-            return self._model_to_schema(value)
+    def _serialize_args_schema(self, value: object) -> JsonObject | str | None:
+        if isinstance(value, type):
+            if issubclass(value, BaseModel):
+                return self._model_to_schema(value)
+            return str(cast(object, value))
 
         if isinstance(value, dict):
-            return value
+            return cast(JsonObject, value)
 
-        return str(value) if value is not None else None
+        if isinstance(value, BaseModel):
+            return cast(JsonObject, value.model_json_schema())
+
+        if value is None:
+            return None
+        return str(value)

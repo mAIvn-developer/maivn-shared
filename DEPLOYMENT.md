@@ -1,23 +1,19 @@
 # Deployment
 
-## Platform Order
+## Release Order
 
-Use this order for a clean rollout that validates the private services before
-you publish the public SDK packages:
+`maivn-shared` is the foundation package, so publish it before the packages that
+depend on it:
 
-1. Tag or pin `maivn-shared` in GitHub so service repos can consume an immutable ref.
-2. Tag or pin `maivn-internal-shared` in GitHub and record the immutable ref that services will consume.
-3. Create the production Supabase project and apply the platform migration pipeline.
-4. Deploy `maivn-agents`.
-5. Deploy `maivn-server`.
-6. After service validation, publish `maivn-shared` to PyPI.
-7. Publish `maivn` to PyPI.
-8. Publish `maivn-studio` to PyPI.
+1. Tag or pin `maivn-shared` in GitHub so downstream consumers can use an immutable ref.
+2. Publish `maivn-shared` to PyPI.
+3. Publish `maivn` to PyPI.
+4. Publish `maivn-studio` to PyPI.
 
 ## Repo Role
 
 `maivn-shared` is a public GitHub repository and a public PyPI package. It is the foundation for
-the SDK and both service repos. Service repos can consume it from an immutable GitHub ref before
+the SDK. Downstream consumers can use it from an immutable GitHub ref before
 you publish it to PyPI.
 
 ## GitHub Setup

@@ -1,3 +1,4 @@
+# pyright: strict
 from __future__ import annotations
 
 # MARK: Dependencies
@@ -35,11 +36,27 @@ from .messages import (
     ToolMessage,
 )
 
+# MARK: Permissions
+from .permissions import (
+    DESTRUCTIVE_FLAG_NAMES,
+    PERMISSION_FLAG_NAMES,
+    PermissionFlag,
+    PermissionSet,
+    require_permissions,
+)
+
 # MARK: PII Whitelist
 from .pii_whitelist import (
     HIPAA_SAFE_HARBOR_CATEGORIES,
     PIIWhitelist,
     PIIWhitelistEntry,
+)
+
+# MARK: Provider Metadata
+from .provider_metadata import (
+    AuthMode,
+    ProviderCapability,
+    ProviderMetadata,
 )
 
 # MARK: Session
@@ -98,10 +115,20 @@ __all__ = [
     "RedactedMessage",
     "SystemMessage",
     "ToolMessage",
+    # MARK: - Permissions
+    "DESTRUCTIVE_FLAG_NAMES",
+    "PERMISSION_FLAG_NAMES",
+    "PermissionFlag",
+    "PermissionSet",
+    "require_permissions",
     # MARK: - PII Whitelist
     "HIPAA_SAFE_HARBOR_CATEGORIES",
     "PIIWhitelist",
     "PIIWhitelistEntry",
+    # MARK: - Provider Metadata
+    "AuthMode",
+    "ProviderCapability",
+    "ProviderMetadata",
     # MARK: - Memory Config
     "MemoryConfig",
     "MemoryInsightExtractionConfig",

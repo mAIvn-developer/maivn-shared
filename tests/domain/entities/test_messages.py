@@ -1,11 +1,38 @@
+# pyright: strict
 from __future__ import annotations
 
 import base64
+from pathlib import Path
+from typing import Literal, cast
 
 import pytest
+from pydantic import BaseModel
 
 from maivn_shared.domain.entities.messages import HumanMessage, PrivateData, RedactedMessage
 from maivn_shared.domain.entities.session import RedactionPreviewRequest, SessionRequest
+
+# MARK: Helpers
+
+
+def _payload(model: BaseModel, *, mode: Literal["json", "python"] = "python") -> dict[str, object]:
+    return cast(dict[str, object], cast(object, model.model_dump(mode=mode, exclude_none=True)))
+
+
+def _attachments(payload: dict[str, object]) -> list[dict[str, object]]:
+    additional_kwargs = cast(dict[str, object], payload["additional_kwargs"])
+    return cast(list[dict[str, object]], additional_kwargs["attachments"])
+
+
+def _metadata(payload: dict[str, object]) -> dict[str, object]:
+    additional_kwargs = cast(dict[str, object], payload["additional_kwargs"])
+    return cast(dict[str, object], additional_kwargs["metadata"])
+
+
+def _decoded_content(attachment: dict[str, object]) -> bytes:
+    return base64.b64decode(cast(str, attachment["content_base64"]))
+
+
+# MARK: Tests
 
 
 def test_human_message_serializes_attachment_bytes() -> None:
@@ -21,27 +48,27 @@ def test_human_message_serializes_attachment_bytes() -> None:
         ],
     )
 
-    payload = message.model_dump(exclude_none=True)
-    attachments = payload["additional_kwargs"]["attachments"]
+    payload = _payload(message)
+    attachments = _attachments(payload)
     assert len(attachments) == 1
     assert attachments[0]["name"] == "notes.txt"
     assert attachments[0]["mime_type"] == "text/plain"
-    assert base64.b64decode(attachments[0]["content_base64"]) == b"hello world"
+    assert _decoded_content(attachments[0]) == b"hello world"
 
 
-def test_human_message_serializes_attachment_file_path(tmp_path) -> None:
+def test_human_message_serializes_attachment_file_path(tmp_path: Path) -> None:
     path = tmp_path / "policy.md"
-    path.write_text("policy content", encoding="utf-8")
+    _ = path.write_text("policy content", encoding="utf-8")
 
     message = HumanMessage(
         content="Use attached policy.",
         attachments=[{"file": str(path)}],
     )
 
-    payload = message.model_dump(exclude_none=True)
-    attachment = payload["additional_kwargs"]["attachments"][0]
+    payload = _payload(message)
+    attachment = _attachments(payload)[0]
     assert attachment["name"] == "policy.md"
-    assert base64.b64decode(attachment["content_base64"]) == b"policy content"
+    assert _decoded_content(attachment) == b"policy content"
 
 
 def test_redacted_message_supports_attachments() -> None:
@@ -51,11 +78,11 @@ def test_redacted_message_supports_attachments() -> None:
         additional_kwargs={"metadata": {"message_type": "redacted"}},
     )
 
-    payload = message.model_dump(exclude_none=True)
-    attachments = payload["additional_kwargs"]["attachments"]
+    payload = _payload(message)
+    attachments = _attachments(payload)
     assert len(attachments) == 1
-    assert base64.b64decode(attachments[0]["content_base64"]) == b"classified"
-    assert payload["additional_kwargs"]["metadata"]["message_type"] == "redacted"
+    assert _decoded_content(attachments[0]) == b"classified"
+    assert _metadata(payload)["message_type"] == "redacted"
 
 
 def test_redacted_message_normalizes_known_pii_values() -> None:
@@ -64,7 +91,7 @@ def test_redacted_message_normalizes_known_pii_values() -> None:
         known_pii_values=[" alice@example.com ", "bob@example.com", "alice@example.com", ""],
     )
 
-    payload = message.model_dump(exclude_none=True)
+    payload = _payload(message)
     assert payload["known_pii_values"] == ["alice@example.com", "bob@example.com"]
 
 
@@ -77,7 +104,7 @@ def test_redacted_message_strips_private_data_and_dict_known_pii_values() -> Non
         ],
     )
 
-    payload = message.model_dump(exclude_none=True)
+    payload = _payload(message)
     assert payload["known_pii_values"] == [
         {"value": "alice@example.com", "name": "primary_email"},
         {"value": "bob@example.com", "name": "backup_email"},
@@ -95,7 +122,7 @@ def test_redaction_preview_request_strips_private_data_and_dict_known_pii_values
         }
     )
 
-    assert request.model_dump(exclude_none=True)["known_pii_values"] == [
+    assert _payload(request)["known_pii_values"] == [
         {"value": "alice@example.com", "name": "primary_email"},
         {"value": "bob@example.com", "name": "backup_email"},
     ]
@@ -103,7 +130,22 @@ def test_redaction_preview_request_strips_private_data_and_dict_known_pii_values
 
 def test_human_message_rejects_missing_attachment_content() -> None:
     with pytest.raises(ValueError):
-        HumanMessage(content="No content", attachments=[{"name": "empty.txt"}])
+        _ = HumanMessage(content="No content", attachments=[{"name": "empty.txt"}])
+
+
+def test_human_message_surfaces_missing_attachment_file_path(tmp_path: Path) -> None:
+    missing = tmp_path / "does-not-exist.txt"
+    with pytest.raises(ValueError, match="not found"):
+        _ = HumanMessage(content="Attach.", attachments=[{"file": str(missing)}])
+
+
+def test_human_message_surfaces_unsupported_file_handle() -> None:
+    class _BadHandle:
+        def read(self) -> object:
+            return 123
+
+    with pytest.raises(ValueError, match="unsupported"):
+        _ = HumanMessage(content="Attach.", attachments=[{"file": _BadHandle()}])
 
 
 def test_session_request_normalizes_human_message_attachments() -> None:
@@ -126,20 +168,20 @@ def test_session_request_normalizes_human_message_attachments() -> None:
     )
 
     assert isinstance(request.messages[0], HumanMessage)
-    payload = request.messages[0].model_dump(exclude_none=True)
-    attachments = payload["additional_kwargs"]["attachments"]
+    payload = _payload(request.messages[0])
+    attachments = _attachments(payload)
     assert len(attachments) == 1
     assert attachments[0]["name"] == "notes.txt"
     assert attachments[0]["mime_type"] == "text/plain"
-    assert base64.b64decode(attachments[0]["content_base64"]) == b"from wire payload"
+    assert _decoded_content(attachments[0]) == b"from wire payload"
 
 
-def test_session_request_rejects_attachment_file_path_from_payload(tmp_path) -> None:
+def test_session_request_rejects_attachment_file_path_from_payload(tmp_path: Path) -> None:
     path = tmp_path / "server-secret.txt"
-    path.write_text("do not read", encoding="utf-8")
+    _ = path.write_text("do not read", encoding="utf-8")
 
     with pytest.raises(ValueError, match="file paths"):
-        SessionRequest.model_validate(
+        _ = SessionRequest.model_validate(
             {
                 "messages": [
                     {
@@ -174,19 +216,19 @@ def test_session_request_normalizes_redacted_message_attachments() -> None:
     )
 
     assert isinstance(request.messages[0], RedactedMessage)
-    payload = request.messages[0].model_dump(exclude_none=True)
-    attachments = payload["additional_kwargs"]["attachments"]
+    payload = _payload(request.messages[0])
+    attachments = _attachments(payload)
     assert len(attachments) == 1
-    assert base64.b64decode(attachments[0]["content_base64"]) == b"classified payload"
-    assert payload["additional_kwargs"]["metadata"]["message_type"] == "redacted"
+    assert _decoded_content(attachments[0]) == b"classified payload"
+    assert _metadata(payload)["message_type"] == "redacted"
 
 
-def test_redaction_preview_rejects_attachment_file_path_from_payload(tmp_path) -> None:
+def test_redaction_preview_rejects_attachment_file_path_from_payload(tmp_path: Path) -> None:
     path = tmp_path / "preview-secret.txt"
-    path.write_text("do not read", encoding="utf-8")
+    _ = path.write_text("do not read", encoding="utf-8")
 
     with pytest.raises(ValueError, match="file paths"):
-        RedactionPreviewRequest.model_validate(
+        _ = RedactionPreviewRequest.model_validate(
             {
                 "message": {
                     "type": "redacted",
@@ -215,13 +257,14 @@ def test_session_request_preserves_redacted_message_known_pii_values_in_payload(
     )
 
     assert isinstance(request.messages[0], RedactedMessage)
-    serialized = request.model_dump(mode="json", exclude_none=True)
-    assert serialized["messages"][0]["known_pii_values"] == ["alice@example.com", "bob@example.com"]
+    serialized = _payload(request, mode="json")
+    messages = cast(list[dict[str, object]], serialized["messages"])
+    assert messages[0]["known_pii_values"] == ["alice@example.com", "bob@example.com"]
 
 
 def test_session_request_rejects_reserved_memory_metadata_keys() -> None:
     with pytest.raises(ValueError, match="use memory_config instead"):
-        SessionRequest(
+        _ = SessionRequest(
             messages=[],
             metadata={"memory_level": "glimpse"},
         )
@@ -229,7 +272,7 @@ def test_session_request_rejects_reserved_memory_metadata_keys() -> None:
 
 def test_session_request_rejects_reserved_session_control_metadata_keys() -> None:
     with pytest.raises(ValueError, match="use typed session config fields instead"):
-        SessionRequest(
+        _ = SessionRequest(
             messages=[],
             metadata={
                 "allowed_system_tools": ["web_search"],

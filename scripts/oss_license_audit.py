@@ -1,3 +1,4 @@
+# pyright: strict
 from __future__ import annotations
 
 import argparse
@@ -59,8 +60,10 @@ def canonicalize_name(name: str) -> str:
 
 
 def read_project_name(project_root: Path) -> str:
-    pyproject = tomllib.loads(project_root.joinpath("pyproject.toml").read_text(encoding="utf-8"))
-    return pyproject["project"]["name"]
+    pyproject_text = project_root.joinpath("pyproject.toml").read_text(encoding="utf-8")
+    pyproject: dict[str, object] = tomllib.loads(pyproject_text)
+    project = cast("dict[str, object]", pyproject["project"])
+    return cast(str, project["name"])
 
 
 def run_export(project_root: Path, project_name: str, *extra_args: str) -> list[str]:
@@ -89,7 +92,7 @@ def run_export(project_root: Path, project_name: str, *extra_args: str) -> list[
 
 def parse_requirement_names(lines: list[str]) -> dict[str, str]:
     packages: dict[str, str] = {}
-    environment = cast(dict[str, str], default_environment())
+    environment = cast("dict[str, str]", cast(object, default_environment()))
     for raw_line in lines:
         line = raw_line.strip()
         if not line or line.startswith("#") or line.startswith("-e "):
@@ -265,7 +268,7 @@ def render_table(records: list[PackageRecord]) -> str:
         notes = record.notes or " "
         lines.append(
             f"| {record.name} | {record.version} | {record.license_name} | "
-            f"{record.category} | {notes} |"
+            + f"{record.category} | {notes} |"
         )
     return "\n".join(lines)
 
@@ -441,18 +444,22 @@ def ensure_report(path: Path, content: str, check_only: bool) -> bool:
     existing = path.read_text(encoding="utf-8") if path.exists() else None
     if check_only:
         return _strip_date_lines(existing or "") == _strip_date_lines(content)
-    path.write_text(content, encoding="utf-8")
+    _ = path.write_text(content, encoding="utf-8")
     return True
+
+
+class _AuditArgs(argparse.Namespace):
+    check: bool = False
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate and validate OSS license reports.")
-    parser.add_argument(
+    _ = parser.add_argument(
         "--check",
         action="store_true",
         help="Verify the committed reports match the generated output.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(namespace=_AuditArgs())
 
     project_root = Path(__file__).resolve().parents[1]
     project_name = read_project_name(project_root)

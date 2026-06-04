@@ -1,3 +1,4 @@
+# pyright: strict
 """High-performance JSON serialization utilities using orjson.
 
 This module provides unified JSON serialization functionality shared across
@@ -14,9 +15,22 @@ Features:
 from __future__ import annotations
 
 import dataclasses
-from typing import Any
+from collections.abc import Callable, Iterable, Mapping
+from typing import Protocol, cast, runtime_checkable
 
 import orjson
+from pydantic import JsonValue
+
+from maivn_shared._redaction import redact_sensitive_data
+from maivn_shared.domain.exceptions import MaivnError, is_retryable
+
+# MARK: - Protocols
+
+
+@runtime_checkable
+class _JsonModel(Protocol):
+    def model_dump(self, *, mode: str) -> object: ...
+
 
 # MARK: - Constants
 
@@ -31,12 +45,13 @@ _TYPE_ORDER_BOOL = 1
 _TYPE_ORDER_NUMBER = 2
 _TYPE_ORDER_STRING = 3
 _TYPE_ORDER_OTHER = 4
+_PUBLIC_ERROR_MESSAGE = "An internal error occurred."
 
 
 # MARK: - Core Functions
 
 
-def to_jsonable(obj: Any) -> Any:
+def to_jsonable(obj: object) -> JsonValue:
     """Convert an object to JSON-serializable format.
 
     Recursively processes objects to ensure JSON compatibility:
@@ -55,7 +70,7 @@ def to_jsonable(obj: Any) -> Any:
     return _serialize_object(obj)
 
 
-def dumps(obj: Any, *, pretty: bool = False) -> str:
+def dumps(obj: object, *, pretty: bool = False) -> str:
     """Serialize object to JSON string using orjson.
 
     Args:
@@ -69,11 +84,17 @@ def dumps(obj: Any, *, pretty: bool = False) -> str:
     return orjson.dumps(obj, default=_orjson_default, option=options).decode("utf-8")
 
 
-def dumps_bytes(obj: Any, *, pretty: bool = False) -> bytes:
+def dumps_bytes(obj: object, *, pretty: bool = False) -> bytes:
     """Serialize object to JSON bytes using orjson.
 
     More efficient than dumps() when bytes output is acceptable.
     Avoids the UTF-8 decode overhead of dumps().
+
+    Key order: when ``pretty=False`` (the default) keys are emitted in the
+    object's insertion order and are NOT sorted; only ``pretty=True`` adds
+    ``OPT_SORT_KEYS``. Callers that hash this output (e.g. content hashing in
+    ``tool_hash_service``) must therefore pre-normalize key order themselves, or
+    two dicts with equal content built in different orders will hash differently.
 
     Args:
         obj: Object to serialize
@@ -86,7 +107,7 @@ def dumps_bytes(obj: Any, *, pretty: bool = False) -> bytes:
     return orjson.dumps(obj, default=_orjson_default, option=options)
 
 
-def loads(data: str | bytes) -> Any:
+def loads(data: str | bytes) -> JsonValue:
     """Deserialize JSON string or bytes to Python object.
 
     Args:
@@ -95,14 +116,18 @@ def loads(data: str | bytes) -> Any:
     Returns:
         Deserialized Python object
     """
-    return orjson.loads(data)
+    return cast(JsonValue, orjson.loads(data))
 
 
 # MARK: - Error Serialization
 
 
-def serialize_error(error: Exception) -> dict[str, Any]:
-    """Serialize an exception to a JSON-friendly dictionary.
+def serialize_error(error: Exception) -> dict[str, object]:
+    """Serialize an exception to a JSON-friendly internal dictionary.
+
+    This helper includes raw exception text and args. Use
+    ``serialize_public_error`` for public API responses or client-visible
+    errors.
 
     Args:
         error: Exception to serialize
@@ -117,34 +142,47 @@ def serialize_error(error: Exception) -> dict[str, Any]:
     }
 
 
-def serialize_with_metadata(obj: Any, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Serialize an object with additional metadata.
+def serialize_public_error(
+    error: Exception,
+    *,
+    message: str = _PUBLIC_ERROR_MESSAGE,
+) -> dict[str, object]:
+    """Serialize an exception without raw text, args, context, or causes."""
+    if isinstance(error, MaivnError):
+        return error.to_public_dict(message=message)
 
-    Args:
-        obj: Object to serialize
-        metadata: Additional metadata to include
-
-    Returns:
-        Dictionary with data, type, and optional metadata
-    """
-    result: dict[str, Any] = {
-        "data": to_jsonable(obj),
-        "type": type(obj).__name__,
+    return {
+        "error_type": type(error).__name__,
+        "error_code": type(error).__name__,
+        "message": message,
+        "retryable": is_retryable(error),
     }
 
-    if metadata:
-        result["metadata"] = to_jsonable(metadata)
 
-    return result
+def safe_public_jsonable(obj: object) -> JsonValue:
+    """Return a JSON-compatible representation with sensitive keys redacted."""
+    return cast(JsonValue, redact_sensitive_data(to_jsonable(obj)))
 
 
 # MARK: - Internal Helpers
 
 
-def _orjson_default(obj: Any) -> Any:
-    """orjson default handler for custom types."""
+def _dispatch_leaf(obj: object, recurse: Callable[[object], object]) -> object:
+    """Shared custom-type dispatch for the two serialization entry points.
+
+    Handles the type ladder both ``_orjson_default`` and ``_serialize_object``
+    share: Pydantic model, dataclass, set/frozenset, bytes, ``__dict__`` object,
+    str fallback. The ``recurse`` callback decides how nested values are handled:
+
+    - ``_orjson_default`` passes the identity callback and relies on orjson to
+      re-serialize set elements and ``__dict__`` values natively.
+    - ``_serialize_object`` passes itself, fully serializing nested values.
+
+    Both paths sort set output by ``_sort_key`` over the (possibly recursed)
+    element, preserving the original per-entry-point ordering byte-for-byte.
+    """
     # Pydantic v2 models
-    if hasattr(obj, "model_dump"):
+    if isinstance(obj, _JsonModel):
         return obj.model_dump(mode="json")
 
     # Dataclasses
@@ -153,21 +191,35 @@ def _orjson_default(obj: Any) -> Any:
 
     # Sets/frozensets
     if isinstance(obj, set | frozenset):
-        return sorted(obj, key=_sort_key)
+        return sorted(
+            [recurse(item) for item in cast(Iterable[object], obj)],
+            key=_sort_key,
+        )
 
     # Bytes
     if isinstance(obj, bytes):
         return _decode_bytes(obj)
 
     # Objects with __dict__
-    if hasattr(obj, "__dict__"):
-        return obj.__dict__
+    attributes = _object_dict(obj)
+    if attributes is not None:
+        return recurse(attributes)
 
     # Fallback to string
     return _safe_str(obj)
 
 
-def _serialize_object(obj: Any) -> Any:
+def _orjson_default(obj: object) -> object:
+    """orjson default handler for custom types.
+
+    orjson natively serializes None/bool/int/float/str/dict/list, so this is only
+    invoked for the custom types in ``_dispatch_leaf``. Nested values are returned
+    unchanged for orjson to recurse over.
+    """
+    return _dispatch_leaf(obj, lambda value: value)
+
+
+def _serialize_object(obj: object) -> JsonValue:
     """Internal recursive serialization logic."""
     if obj is None:
         return None
@@ -179,33 +231,29 @@ def _serialize_object(obj: Any) -> Any:
         return _decode_bytes(obj)
 
     if isinstance(obj, dict):
-        return {_serialize_key(k): _serialize_object(v) for k, v in obj.items()}
+        mapping = cast(Mapping[object, object], obj)
+        return {_serialize_key(k): _serialize_object(v) for k, v in mapping.items()}
 
     if isinstance(obj, list | tuple):
-        return [_serialize_object(item) for item in obj]
+        return [_serialize_object(item) for item in cast(Iterable[object], obj)]
 
-    if isinstance(obj, set | frozenset):
-        return sorted([_serialize_object(item) for item in obj], key=_sort_key)
-
-    if hasattr(obj, "model_dump"):
-        return obj.model_dump(mode="json")
-
-    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
-        return dataclasses.asdict(obj)
-
-    if hasattr(obj, "__dict__"):
-        return _serialize_object(obj.__dict__)
-
-    return _safe_str(obj)
+    return cast(JsonValue, _dispatch_leaf(obj, _serialize_object))
 
 
-def _serialize_key(key: Any) -> str:
+def _serialize_key(key: object) -> str:
     """Convert dictionary key to string."""
     return key if isinstance(key, str) else str(key)
 
 
-def _sort_key(item: Any) -> tuple[int, str]:
-    """Generate sort key for mixed-type lists."""
+def _sort_key(item: object) -> tuple[int, str]:
+    """Generate sort key for mixed-type lists.
+
+    Numbers are keyed by ``str(item)``, so a numeric set sorts lexicographically
+    (``{2, 10, 1}`` -> ``[1, 10, 2]``), not by numeric value. This is intentional:
+    the only goal here is a *deterministic* ordering for set serialization.
+    Switching to numeric ordering would change existing serialized output and so
+    shift any hashes or snapshots computed over set-containing payloads.
+    """
     if item is None:
         return (_TYPE_ORDER_NONE, "")
     if isinstance(item, bool):
@@ -225,12 +273,20 @@ def _decode_bytes(data: bytes) -> str:
         return f"<bytes: {len(data)} bytes>"
 
 
-def _safe_str(obj: Any) -> str:
+def _safe_str(obj: object) -> str:
     """Convert object to string with fallback."""
     try:
         return str(obj)
-    except Exception:
+    except Exception:  # noqa: BLE001 - best-effort fallback; value degrades to a placeholder.
         return f"<{type(obj).__name__}>"
+
+
+def _object_dict(obj: object) -> Mapping[str, object] | None:
+    """Return object attributes for instances that expose __dict__."""
+    try:
+        return cast(Mapping[str, object], vars(obj))
+    except TypeError:
+        return None
 
 
 # MARK: - Exports
@@ -239,7 +295,8 @@ __all__ = [
     "dumps",
     "dumps_bytes",
     "loads",
+    "safe_public_jsonable",
     "serialize_error",
-    "serialize_with_metadata",
+    "serialize_public_error",
     "to_jsonable",
 ]

@@ -1,3 +1,4 @@
+# pyright: strict
 """Factory for dynamically generating ToolSpecs from functions and agent state schemas.
 
 This module provides utilities to generate ToolSpec instances from:

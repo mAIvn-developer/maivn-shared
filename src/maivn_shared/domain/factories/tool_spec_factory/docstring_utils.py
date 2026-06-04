@@ -1,3 +1,4 @@
+# pyright: strict
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -101,7 +102,9 @@ def _process_args_line(
     current_desc: list[str],
 ) -> tuple[str | None, list[str]]:
     """Process a single line within the Args section."""
-    if ":" in stripped and not stripped.startswith(" "):
+    # `stripped` is already whitespace-trimmed by the caller, so a leading-space
+    # test can never match; presence of a colon is the only discriminator.
+    if ":" in stripped:
         _save_param(param_docs, current_param, current_desc)
         return _parse_param_line(stripped)
 

@@ -18,10 +18,12 @@ Compliance posture:
       change mechanism.
 """
 
+# pyright: strict
 from __future__ import annotations
 
 import re
-from typing import Any
+from collections.abc import Sequence
+from typing import ClassVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -84,7 +86,7 @@ class PIIWhitelistEntry(BaseModel):
         )
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="forbid")
 
     entity_type: str | None = Field(
         default=None,
@@ -157,10 +159,11 @@ class PIIWhitelistEntry(BaseModel):
             raise ValueError(f"Invalid regex pattern: {exc}") from exc
         # Refuse trivially permissive patterns that could whitelist huge swaths.
         if compiled.match("") is not None and compiled.match("a") is not None:
-            raise ValueError(
+            message = (
                 "pattern is too permissive (matches empty or single-char strings); "
-                "narrow the pattern or use entity_type."
+                + "narrow the pattern or use entity_type."
             )
+            raise ValueError(message)
         return value
 
     @field_validator("value")
@@ -211,7 +214,7 @@ class PIIWhitelist(BaseModel):
         )
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="forbid")
 
     entries: tuple[PIIWhitelistEntry, ...] = Field(
         default_factory=tuple,
@@ -227,14 +230,14 @@ class PIIWhitelist(BaseModel):
 
     @field_validator("entries", mode="before")
     @classmethod
-    def _coerce_entries(cls, value: Any) -> tuple[PIIWhitelistEntry, ...]:
+    def _coerce_entries(cls, value: object) -> tuple[PIIWhitelistEntry, ...]:
         if value is None:
             return ()
         if isinstance(value, PIIWhitelistEntry):
             return (value,)
         if isinstance(value, list | tuple):
             coerced: list[PIIWhitelistEntry] = []
-            for item in value:
+            for item in cast(Sequence[object], value):
                 if isinstance(item, PIIWhitelistEntry):
                     coerced.append(item)
                 elif isinstance(item, dict):
@@ -255,11 +258,12 @@ class PIIWhitelist(BaseModel):
             if entry.entity_type and entry.entity_type in HIPAA_SAFE_HARBOR_CATEGORIES:
                 bad.append(entry.entity_type)
         if bad:
-            raise ValueError(
+            message = (
                 "phi_mode=True forbids entity_type whitelist entries for HIPAA Safe "
-                f"Harbor categories: {sorted(set(bad))}. Use specific value or "
-                "narrowly-scoped pattern entries instead."
+                + f"Harbor categories: {sorted(set(bad))}. Use specific value or "
+                + "narrowly-scoped pattern entries instead."
             )
+            raise ValueError(message)
         return self
 
     def is_empty(self) -> bool:

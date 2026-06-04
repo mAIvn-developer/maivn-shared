@@ -1,10 +1,9 @@
 """Tool execution models for SDK interface."""
 
+# pyright: strict
 from __future__ import annotations
 
-from typing import Any
-
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 
 # MARK: Tool Execution Entities
 
@@ -13,7 +12,7 @@ class ToolCall(BaseModel):
     """Details about a single tool invocation request."""
 
     tool_id: str = Field(..., description="Identifier for the tool to execute")
-    args: dict[str, Any] = Field(
+    args: dict[str, JsonValue] = Field(
         default_factory=dict,
         description="Arguments provided for the tool execution",
     )

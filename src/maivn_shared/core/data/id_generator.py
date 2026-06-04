@@ -1,3 +1,4 @@
+# pyright: strict
 """UUID generation utilities for maivn-core.
 
 This module provides utilities for generating unique identifiers,
@@ -90,5 +91,5 @@ def _get_fallback_identifier(obj: object) -> str:
     type_name = type(obj).__name__
     try:
         return f"{type_name}:{repr(obj)}"
-    except Exception:
+    except Exception:  # noqa: BLE001 - repr(obj) may raise; id fallback preserves UUIDs.
         return f"{type_name}:{id(obj)}"

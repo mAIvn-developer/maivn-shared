@@ -1,3 +1,4 @@
+# pyright: strict
 """Utilities for maivn-core shared across packages."""
 
 from __future__ import annotations
@@ -15,13 +16,21 @@ from .env import (
 # MARK: - Prompts
 from .prompt_utils import load_prompt
 
+# MARK: - Redaction
+from .redaction import (
+    REDACTED,
+    is_sensitive_key,
+    redact_sensitive_data,
+)
+
 # MARK: - Serialization
 from .serialization import (
     dumps,
     dumps_bytes,
     loads,
+    safe_public_jsonable,
     serialize_error,
-    serialize_with_metadata,
+    serialize_public_error,
     to_jsonable,
 )
 
@@ -45,12 +54,17 @@ __all__ = [
     "resolve_env",
     # Prompts
     "load_prompt",
+    # Redaction
+    "REDACTED",
+    "is_sensitive_key",
+    "redact_sensitive_data",
     # Serialization
     "dumps",
     "dumps_bytes",
     "loads",
+    "safe_public_jsonable",
     "serialize_error",
-    "serialize_with_metadata",
+    "serialize_public_error",
     "to_jsonable",
     # Time
     "coerce_utc",

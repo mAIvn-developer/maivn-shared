@@ -3,10 +3,10 @@
 This module provides thread-safe context tracking for logger instances.
 """
 
+# pyright: strict
 from __future__ import annotations
 
 from contextvars import ContextVar
-from typing import Any
 
 # MARK: - Context Manager
 
@@ -22,23 +22,23 @@ class ContextManager:
 
     def __init__(self) -> None:
         """Initialize the context manager."""
-        self._context_var: ContextVar[dict[str, Any] | None] = ContextVar(
+        self._context_var: ContextVar[dict[str, object] | None] = ContextVar(
             "maivn_logger_context",
             default=None,
         )
 
     # MARK: - Context Operations
 
-    def set(self, **kwargs: Any) -> None:
+    def set(self, **kwargs: object) -> None:
         """Set context values for all subsequent logs.
 
         Args:
             **kwargs: Context key-value pairs (e.g., session_id, thread_id)
         """
         current = self._context_var.get() or {}
-        self._context_var.set({**current, **kwargs})
+        _ = self._context_var.set({**current, **kwargs})
 
-    def get(self, key: str, default: Any = None) -> Any:
+    def get(self, key: str, default: object = None) -> object:
         """Get a specific context value.
 
         Args:
@@ -58,17 +58,17 @@ class ContextManager:
         """
         current = self._context_var.get() or {}
         if not keys:
-            self._context_var.set(None)
+            _ = self._context_var.set(None)
             return
 
         updated = dict(current)
         for key in keys:
-            updated.pop(key, None)
-        self._context_var.set(updated)
+            _ = updated.pop(key, None)
+        _ = self._context_var.set(updated)
 
     # MARK: - Context Retrieval
 
-    def get_context(self) -> dict[str, Any]:
+    def get_context(self) -> dict[str, object]:
         """Get a copy of the current context.
 
         Returns:

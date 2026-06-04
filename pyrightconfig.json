@@ -1,11 +1,22 @@
 {
   "venvPath": "../..",
   "venv": ".venv",
-  "exclude": [".venv", "tests"],
+  "typeCheckingMode": "strict",
+  "include": [
+    "src",
+    "tests"
+  ],
+  "exclude": [
+    ".venv",
+    ".deps"
+  ],
   "executionEnvironments": [
     {
       "root": ".",
-      "extraPaths": ["../../libraries/maivn/src"]
+      "extraPaths": [
+        "src",
+        "../../libraries/maivn/src"
+      ]
     }
   ]
 }
