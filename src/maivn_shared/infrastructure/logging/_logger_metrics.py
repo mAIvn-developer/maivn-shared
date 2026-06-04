@@ -5,13 +5,15 @@ entries — file-only for token usage, console+file for tool execution —
 keyed by stable component names so log consumers can grep / aggregate.
 """
 
+# pyright: strict
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
-if TYPE_CHECKING:
-    from .config import LogLevel
+from maivn_shared._redaction import REDACTED, is_sensitive_key, redact_sensitive_data
 
+from .config import LogLevel
+from .writers import LogWriter
 
 # MARK: MaivnLoggerMetricsMixin
 
@@ -22,6 +24,19 @@ class MaivnLoggerMetricsMixin:
     Assumes the concrete class provides ``_writer`` and
     ``_write_structured_log``.
     """
+
+    if TYPE_CHECKING:
+        _writer: LogWriter = cast(LogWriter, cast(object, None))
+
+        def _write_structured_log(
+            self,
+            level: LogLevel,
+            component: str,
+            event: str,
+            data: dict[str, object],
+        ) -> None:
+            del level, component, event, data
+            raise NotImplementedError
 
     # MARK: - Token Usage
 
@@ -40,16 +55,16 @@ class MaivnLoggerMetricsMixin:
         session_id: str | None = None,
         thread_id: str | None = None,
         batch_number: int | None = None,
-        **metadata: Any,
+        **metadata: object,
     ) -> None:
         """Emit a structured token-usage record (file only; never console)."""
-        if not self._writer.file_logging_enabled:  # type: ignore[attr-defined]
+        if not self._writer.file_logging_enabled:
             return
 
-        cache_hit_rate = (cache_read_tokens / input_tokens * 100) if input_tokens > 0 else 0
+        cache_hit_rate = (cache_read_tokens / input_tokens * 100) if input_tokens > 0 else 0.0
         non_cached_input = input_tokens - cache_read_tokens
 
-        data: dict[str, Any] = {
+        data: dict[str, object] = {
             "agent_name": agent_name,
             "invocation_type": invocation_type,
             "model": model,
@@ -73,7 +88,7 @@ class MaivnLoggerMetricsMixin:
 
         data.update(metadata)
 
-        self._write_structured_log(  # type: ignore[attr-defined]
+        self._write_structured_log(
             level="INFO",
             component="TOKEN_USAGE",
             event="token_usage",
@@ -88,14 +103,16 @@ class MaivnLoggerMetricsMixin:
         tool_id: str,
         tool_name: str,
         tool_type: str | None = None,
-        args: dict[str, Any] | None = None,
-        result: Any = None,
+        args: dict[str, object] | None = None,
+        result: object = None,
         error: str | None = None,
         elapsed_ms: int | None = None,
         session_id: str | None = None,
         thread_id: str | None = None,
         task_idx: int | None = None,
-        **metadata: Any,
+        result_safe_for_log: bool = False,
+        error_safe_for_log: bool = False,
+        **metadata: object,
     ) -> None:
         """Emit a structured tool-execution record covering one lifecycle phase.
 
@@ -106,7 +123,7 @@ class MaivnLoggerMetricsMixin:
         """
         level: LogLevel = "ERROR" if phase == "failed" else "INFO"
 
-        data: dict[str, Any] = {
+        data: dict[str, object] = {
             "tool_id": tool_id,
             "tool_name": tool_name,
             "tool_type": tool_type,
@@ -121,21 +138,28 @@ class MaivnLoggerMetricsMixin:
         if task_idx is not None:
             data["task_idx"] = task_idx
         if args:
-            data["args_keys"] = list(args.keys())
+            data["args_keys"] = [
+                REDACTED if is_sensitive_key(str(key)) else key for key in args.keys()
+            ]
         if result is not None:
-            result_str = str(result)
-            data["result_preview"] = result_str[:200] if len(result_str) > 200 else result_str
+            data["result_preview"] = _safe_preview(result) if result_safe_for_log else REDACTED
         if error:
-            data["error"] = error
+            data["error"] = _safe_preview(error) if error_safe_for_log else REDACTED
 
         data.update(metadata)
 
-        self._write_structured_log(  # type: ignore[attr-defined]
+        self._write_structured_log(
             level=level,
             component="TOOL_EXECUTION",
             event=f"tool_{phase}",
             data=data,
         )
+
+
+def _safe_preview(value: object) -> str:
+    """Return a short preview after applying key-based redaction."""
+    value_str = str(redact_sensitive_data(value))
+    return value_str[:200] if len(value_str) > 200 else value_str
 
 
 __all__ = ["MaivnLoggerMetricsMixin"]

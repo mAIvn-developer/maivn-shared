@@ -1,10 +1,13 @@
 """Typed public memory configuration models shared across clients and services."""
 
+# pyright: strict
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import ClassVar, Literal, TypeAlias, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
+
+JsonObject: TypeAlias = dict[str, JsonValue]
 
 MemoryLevel = Literal["none", "glimpse", "focus", "clarity"]
 MemoryPersistenceMode = Literal["persist_none", "vector_only", "vector_plus_graph"]
@@ -37,7 +40,7 @@ _EXPLICIT_RESERVED_MEMORY_METADATA_KEYS = frozenset(
 # MARK: - Helpers
 
 
-def _normalize_optional_text(value: Any) -> Any:
+def _normalize_optional_text(value: object) -> object | None:
     if value is None:
         return None
     if not isinstance(value, str):
@@ -46,12 +49,15 @@ def _normalize_optional_text(value: Any) -> Any:
     return normalized or None
 
 
-def _merge_nested_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    merged = dict(base)
+def _merge_nested_dicts(base: JsonObject, override: JsonObject) -> JsonObject:
+    merged: JsonObject = dict(base)
     for key, value in override.items():
         existing = merged.get(key)
         if isinstance(existing, dict) and isinstance(value, dict):
-            merged[key] = _merge_nested_dicts(existing, value)
+            merged[key] = _merge_nested_dicts(
+                cast(JsonObject, existing),
+                cast(JsonObject, value),
+            )
             continue
         merged[key] = value
     return merged
@@ -81,7 +87,7 @@ def is_reserved_memory_metadata_key(key: str) -> bool:
 class MemoryRetrievalConfig(BaseModel):
     """Public retrieval controls for memory bootstrap and recall."""
 
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", populate_by_name=True)
 
     top_k: int | None = Field(default=None, ge=1)
     candidate_limit: int | None = Field(default=None, ge=1)
@@ -107,7 +113,7 @@ class MemoryRetrievalConfig(BaseModel):
 class MemorySkillExtractionConfig(BaseModel):
     """Public skill-extraction controls."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     enabled: bool | None = None
     sharing_scope: MemorySharingScope | None = None
@@ -116,14 +122,14 @@ class MemorySkillExtractionConfig(BaseModel):
 
     @field_validator("sharing_scope", mode="before")
     @classmethod
-    def _normalize_sharing_scope(cls, value: Any) -> Any:
+    def _normalize_sharing_scope(cls, value: object) -> object | None:
         return _normalize_optional_text(value)
 
 
 class MemoryInsightExtractionConfig(BaseModel):
     """Public insight-extraction controls."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     enabled: bool | None = None
     sharing_scope: Literal["agent", "swarm"] | None = None
@@ -132,7 +138,7 @@ class MemoryInsightExtractionConfig(BaseModel):
 
     @field_validator("sharing_scope", mode="before")
     @classmethod
-    def _normalize_sharing_scope(cls, value: Any) -> Any:
+    def _normalize_sharing_scope(cls, value: object) -> object | None:
         return _normalize_optional_text(value)
 
 
@@ -142,7 +148,7 @@ class MemoryInsightExtractionConfig(BaseModel):
 class MemoryConfig(BaseModel):
     """Public memory configuration for SDK invocations and scope defaults."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     enabled: bool | None = None
     level: MemoryLevel | None = None
@@ -154,7 +160,7 @@ class MemoryConfig(BaseModel):
 
     @field_validator("level", "persistence_mode", mode="before")
     @classmethod
-    def _normalize_literal_fields(cls, value: Any) -> Any:
+    def _normalize_literal_fields(cls, value: object) -> object | None:
         return _normalize_optional_text(value)
 
     def is_configured(self) -> bool:
@@ -164,8 +170,8 @@ class MemoryConfig(BaseModel):
         if override is None or not override.is_configured():
             return self.model_copy(deep=True)
         merged_payload = _merge_nested_dicts(
-            self.model_dump(exclude_none=True),
-            override.model_dump(exclude_none=True),
+            cast(JsonObject, self.model_dump(exclude_none=True)),
+            cast(JsonObject, override.model_dump(exclude_none=True)),
         )
         return type(self).model_validate(merged_payload)
 

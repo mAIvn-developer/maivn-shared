@@ -1,3 +1,4 @@
+# pyright: strict
 from __future__ import annotations
 
 import pytest
@@ -5,9 +6,14 @@ from pydantic import ValidationError
 
 from maivn_shared.domain.entities.dependencies import InterruptDependency
 
+# MARK: Helpers
+
 
 def _handle_input(value: str) -> str:
     return value
+
+
+# MARK: Tests
 
 
 def test_interrupt_dependency_allows_text_without_choices() -> None:
@@ -26,7 +32,7 @@ def test_interrupt_dependency_requires_choices_for_choice_input_type() -> None:
     with pytest.raises(
         ValidationError, match="choices must be provided when input_type is 'choice' or 'literal'"
     ):
-        InterruptDependency(
+        _ = InterruptDependency(
             name="input",
             arg_name="input",
             prompt="Select a value",
@@ -50,7 +56,7 @@ def test_interrupt_dependency_accepts_choices_for_literal_input_type() -> None:
 
 def test_interrupt_dependency_rejects_invalid_input_type() -> None:
     with pytest.raises(ValidationError, match="Input should be"):
-        InterruptDependency.model_validate(
+        _ = InterruptDependency.model_validate(
             {
                 "name": "input",
                 "arg_name": "input",

@@ -11,10 +11,11 @@ Dependency types:
 - InterruptDependency: Requires user input at runtime (interrupts execution)
 """
 
+# pyright: strict
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -31,7 +32,7 @@ ExecutionInstanceControl = Literal["each", "all"]
 class BaseDependency(BaseModel):
     """Base model for tool dependencies in maivn-core package."""
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(arbitrary_types_allowed=True)
 
     name: str = Field(default="", description="Name of the dependency")
     dependency_type: DependencyType = Field(..., description="Type of dependency")
@@ -67,7 +68,7 @@ class InterruptDependency(BaseDependency):
 
     dependency_type: DependencyType = Field(default="user", description="Type of dependency")
     prompt: str = Field(default="", description="Prompt to display when requesting input")
-    input_handler: Callable[[str], Any] = Field(
+    input_handler: Callable[[str], object] = Field(
         ..., description="Callable that accepts prompt and returns input value"
     )
     input_type: InputType = Field(

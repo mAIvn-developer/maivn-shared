@@ -6,9 +6,12 @@ non-SDK code accept any object that quacks like a logger (real loggers,
 test fakes, the null logger) and stay type-checked.
 """
 
+# pyright: strict
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol
+from typing import Literal, Protocol
+
+# MARK: Logger Protocols
 
 
 class LoggerProtocol(Protocol):
@@ -18,20 +21,26 @@ class LoggerProtocol(Protocol):
     declares these methods satisfies this protocol.
     """
 
-    def debug(self, message: str, *args: Any, component: str = "APP", **metadata: Any) -> None: ...
-
-    def info(self, message: str, *args: Any, component: str = "APP", **metadata: Any) -> None: ...
-
-    def warning(
-        self, message: str, *args: Any, component: str = "APP", **metadata: Any
+    def debug(
+        self, message: str, *args: object, component: str = "APP", **metadata: object
     ) -> None: ...
 
-    def error(self, message: str, *args: Any, component: str = "APP", **metadata: Any) -> None: ...
+    def info(
+        self, message: str, *args: object, component: str = "APP", **metadata: object
+    ) -> None: ...
 
-    def exception(self, message: str, component: str = "APP", **metadata: Any) -> None: ...
+    def warning(
+        self, message: str, *args: object, component: str = "APP", **metadata: object
+    ) -> None: ...
+
+    def error(
+        self, message: str, *args: object, component: str = "APP", **metadata: object
+    ) -> None: ...
+
+    def exception(self, message: str, component: str = "APP", **metadata: object) -> None: ...
 
     def critical(
-        self, message: str, *args: Any, component: str = "APP", **metadata: Any
+        self, message: str, *args: object, component: str = "APP", **metadata: object
     ) -> None: ...
 
 
@@ -49,14 +58,16 @@ class MetricsLoggerProtocol(LoggerProtocol, Protocol):
         tool_id: str,
         tool_name: str,
         tool_type: str | None = None,
-        args: dict[str, Any] | None = None,
-        result: Any = None,
+        args: dict[str, object] | None = None,
+        result: object = None,
         error: str | None = None,
         elapsed_ms: int | None = None,
         session_id: str | None = None,
         thread_id: str | None = None,
         task_idx: int | None = None,
-        **metadata: Any,
+        result_safe_for_log: bool = False,
+        error_safe_for_log: bool = False,
+        **metadata: object,
     ) -> None: ...
 
     def log_token_usage(
@@ -74,7 +85,7 @@ class MetricsLoggerProtocol(LoggerProtocol, Protocol):
         session_id: str | None = None,
         thread_id: str | None = None,
         batch_number: int | None = None,
-        **metadata: Any,
+        **metadata: object,
     ) -> None: ...
 
 

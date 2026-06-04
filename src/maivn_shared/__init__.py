@@ -1,3 +1,4 @@
+# pyright: strict
 """Maivn Core - Core domain models and utilities for the Maivn platform.
 
 This package provides the fundamental building blocks for Maivn applications:
@@ -8,15 +9,23 @@ This package provides the fundamental building blocks for Maivn applications:
 
 from __future__ import annotations
 
+from typing import Protocol, cast
+
 from .core import (
     ASSIGNMENT_COMPLETED_EVENT_NAME,
     ASSIGNMENT_RECEIVED_EVENT_NAME,
     ENRICHMENT_EVENT_NAME,
     ERROR_EVENT_NAME,
+    EVALUATING_ENRICHMENT_PHASE,
+    EXECUTING_ACTIONS_ENRICHMENT_PHASE,
+    EXECUTING_ASSIGNMENTS_ENRICHMENT_PHASE,
     FINAL_EVENT_NAME,
+    FINALIZING_ENRICHMENT_PHASE,
     HEARTBEAT_EVENT_NAME,
     INTERRUPT_REQUEST_EVENT_NAME,
     INTERRUPT_REQUIRED_EVENT_NAME,
+    KNOWN_ENRICHMENT_PHASES,
+    LOADING_TOOLS_ENRICHMENT_PHASE,
     MEMORY_ENRICHMENT_PHASES,
     MEMORY_GRAPH_EXTRACTING_ENRICHMENT_PHASE,
     MEMORY_INDEXED_ENRICHMENT_PHASE,
@@ -31,9 +40,14 @@ from .core import (
     MEMORY_SUMMARIZING_ENRICHMENT_PHASE,
     MESSAGE_REDACTION_APPLIED_ENRICHMENT_PHASE,
     MODEL_TOOL_COMPLETE_EVENT_NAME,
+    PLANNING_ASSIGNMENTS_ENRICHMENT_PHASE,
+    PLANNING_ENRICHMENT_PHASE,
+    PROCESSING_ENRICHMENT_MESSAGES,
+    PROCESSING_ENRICHMENT_PHASES,
     PROGRESS_UPDATE_EVENT_NAME,
     REDACTION_ENRICHMENT_PHASES,
     REDACTION_PREVIEWED_ENRICHMENT_PHASE,
+    REEVALUATE_ACCRUED_ENRICHMENT_PHASE,
     RESOURCE_DEDUP_REUSED_ENRICHMENT_PHASE,
     RESOURCE_ENRICHMENT_PHASES,
     RESOURCE_EXTRACTED_ENRICHMENT_PHASE,
@@ -41,7 +55,9 @@ from .core import (
     RESOURCE_REGISTERED_ENRICHMENT_PHASE,
     RESOURCE_REGISTERING_ENRICHMENT_PHASE,
     RESOURCE_VERSION_SUPERSEDED_ENRICHMENT_PHASE,
+    SEARCHING_TOOLS_ENRICHMENT_PHASE,
     STATUS_MESSAGE_EVENT_NAME,
+    SYNTHESIZING_ENRICHMENT_PHASE,
     SYSTEM_TOOL_CHUNK_EVENT_NAME,
     SYSTEM_TOOL_COMPLETE_EVENT_NAME,
     SYSTEM_TOOL_ERROR_EVENT_NAME,
@@ -49,14 +65,19 @@ from .core import (
     TOOL_EVENT_NAME,
     UPDATE_EVENT_NAME,
     create_uuid,
+    is_known_enrichment_phase,
+    resolve_enrichment_message,
 )
 from .domain.entities import (
+    DESTRUCTIVE_FLAG_NAMES,
     HIPAA_SAFE_HARBOR_CATEGORIES,
+    PERMISSION_FLAG_NAMES,
     SWARM_AGENT_INVOCATION_METADATA_KEY,
     SWARM_INVOCATION_INTENT_METADATA_KEY,
     AgentDependency,
     AIMessage,
     ArgsSchema,
+    AuthMode,
     AwaitForDependency,
     BaseDependency,
     BaseMessage,
@@ -78,9 +99,13 @@ from .domain.entities import (
     MemorySkillExtractionConfig,
     NestedSynthesisMode,
     OrchestrationMode,
+    PermissionFlag,
+    PermissionSet,
     PIIWhitelist,
     PIIWhitelistEntry,
     PrivateData,
+    ProviderCapability,
+    ProviderMetadata,
     RedactedMessage,
     RedactionPreviewRequest,
     RedactionPreviewResponse,
@@ -104,7 +129,10 @@ from .domain.entities import (
     ToolResumePayload,
     ToolSpec,
     ToolType,
-    apply_session_configs_to_metadata,
+    require_permissions,
+)
+from .domain.entities import (
+    apply_session_configs_to_metadata as _apply_session_configs_to_metadata,
 )
 from .domain.exceptions import (
     ConfigurationError,
@@ -128,19 +156,47 @@ from .infrastructure import (
 )
 from .infrastructure.logging import Colors, LogLevel, LogStyles
 from .utils import (
+    REDACTED,
     dumps,
     dumps_bytes,
     extract_tool_names,
+    is_sensitive_key,
     loads,
+    redact_sensitive_data,
+    safe_public_jsonable,
     serialize_error,
-    serialize_with_metadata,
+    serialize_public_error,
     to_jsonable,
 )
 
+# MARK: - Types
+
+
+class _ApplySessionConfigsToMetadata(Protocol):
+    def __call__(
+        self,
+        metadata: dict[str, object],
+        *,
+        execution_config: SessionExecutionConfig | None = None,
+        system_tools_config: SystemToolsConfig | None = None,
+        structured_output_config: StructuredOutputConfig | None = None,
+        orchestration_config: SessionOrchestrationConfig | None = None,
+        memory_assets_config: MemoryAssetsConfig | None = None,
+        swarm_config: SwarmConfig | None = None,
+    ) -> None: ...
+
+
+# MARK: - Public API
+
+apply_session_configs_to_metadata = cast(
+    _ApplySessionConfigsToMetadata,
+    _apply_session_configs_to_metadata,
+)
+
 __all__ = [
-    # Core - Utilities
+    # MARK: - Core - Utilities
     "create_uuid",
-    # Core - Events
+    # MARK: - Core - Events
     "TOOL_EVENT_NAME",
     "INTERRUPT_REQUEST_EVENT_NAME",
     "INTERRUPT_REQUIRED_EVENT_NAME",
@@ -158,6 +214,21 @@ __all__ = [
     "SYSTEM_TOOL_COMPLETE_EVENT_NAME",
     "SYSTEM_TOOL_ERROR_EVENT_NAME",
     "ENRICHMENT_EVENT_NAME",
+    "EVALUATING_ENRICHMENT_PHASE",
+    "PLANNING_ENRICHMENT_PHASE",
+    "SEARCHING_TOOLS_ENRICHMENT_PHASE",
+    "LOADING_TOOLS_ENRICHMENT_PHASE",
+    "PLANNING_ASSIGNMENTS_ENRICHMENT_PHASE",
+    "EXECUTING_ASSIGNMENTS_ENRICHMENT_PHASE",
+    "EXECUTING_ACTIONS_ENRICHMENT_PHASE",
+    "SYNTHESIZING_ENRICHMENT_PHASE",
+    "FINALIZING_ENRICHMENT_PHASE",
+    "REEVALUATE_ACCRUED_ENRICHMENT_PHASE",
+    "PROCESSING_ENRICHMENT_MESSAGES",
+    "PROCESSING_ENRICHMENT_PHASES",
+    "KNOWN_ENRICHMENT_PHASES",
+    "resolve_enrichment_message",
+    "is_known_enrichment_phase",
     "MEMORY_SUMMARIZING_ENRICHMENT_PHASE",
     "MEMORY_SUMMARIZED_ENRICHMENT_PHASE",
     "MEMORY_RETRIEVING_ENRICHMENT_PHASE",
@@ -180,7 +251,7 @@ __all__ = [
     "RESOURCE_EXTRACTING_ENRICHMENT_PHASE",
     "RESOURCE_EXTRACTED_ENRICHMENT_PHASE",
     "RESOURCE_ENRICHMENT_PHASES",
-    # Domain - Entities - Memory Config
+    # MARK: - Domain - Entities - Memory Config
     "MemoryConfig",
     "MemoryAssetsConfig",
     "MemoryInsightExtractionConfig",
@@ -194,7 +265,7 @@ __all__ = [
     "NestedSynthesisMode",
     "FinalOutputMode",
     "OrchestrationMode",
-    # Domain - Entities - Session
+    # MARK: - Domain - Entities - Session
     "SWARM_AGENT_INVOCATION_METADATA_KEY",
     "SWARM_INVOCATION_INTENT_METADATA_KEY",
     "RedactionPreviewRequest",
@@ -211,13 +282,13 @@ __all__ = [
     "SwarmConfig",
     "SystemToolsConfig",
     "apply_session_configs_to_metadata",
-    # Domain - Entities - Tool Specification
+    # MARK: - Domain - Entities - Tool Specification
     "ArgsSchema",
     "ToolSpec",
     "ToolType",
     "ToolCall",
     "ToolExecutionResult",
-    # Domain - Entities - Messages
+    # MARK: - Domain - Entities - Messages
     "BaseMessage",
     "HumanMessage",
     "PrivateData",
@@ -225,11 +296,21 @@ __all__ = [
     "AIMessage",
     "SystemMessage",
     "ToolMessage",
-    # Domain - Entities - PII Whitelist
+    # MARK: - Domain - Entities - Permissions
+    "DESTRUCTIVE_FLAG_NAMES",
+    "PERMISSION_FLAG_NAMES",
+    "PermissionFlag",
+    "PermissionSet",
+    "require_permissions",
+    # MARK: - Domain - Entities - PII Whitelist
     "HIPAA_SAFE_HARBOR_CATEGORIES",
     "PIIWhitelist",
     "PIIWhitelistEntry",
-    # Domain - Entities - Dependencies
+    # MARK: - Domain - Entities - Provider Metadata
+    "AuthMode",
+    "ProviderCapability",
+    "ProviderMetadata",
+    # MARK: - Domain - Entities - Dependencies
     "BaseDependency",
     "AgentDependency",
     "AwaitForDependency",
@@ -240,36 +321,40 @@ __all__ = [
     "ReevaluateDependency",
     "ToolDependency",
     "ToolResumePayload",
-    # Domain - Exceptions
+    # MARK: - Domain - Exceptions
     "MaivnError",
     "ConfigurationError",
     "ValidationError",
     "SerializationError",
     "wrap_exception",
     "is_retryable",
-    # Domain - Factories
+    # MARK: - Domain - Factories
     "build_tool_spec_from_function",
-    # Infrastructure - Logging
+    # MARK: - Infrastructure - Logging
     "MaivnLogger",
     "LogLevel",
     "Colors",
     "LogStyles",
     "get_logger",
     "get_optional_logger",
-    # Infrastructure - HTTP
+    # MARK: - Infrastructure - HTTP
     "HttpClient",
     "HttpError",
     "HttpClientProtocol",
     "SSEClientProtocol",
     "ServerEndpoints",
     "SessionClientProtocol",
-    # Utilities - Serialization
+    # MARK: - Utilities - Serialization
     "dumps",
     "dumps_bytes",
     "loads",
     "to_jsonable",
+    "safe_public_jsonable",
     "serialize_error",
-    "serialize_with_metadata",
-    # Utilities - Tools
+    "serialize_public_error",
+    "REDACTED",
+    "is_sensitive_key",
+    "redact_sensitive_data",
+    # MARK: - Utilities - Tools
     "extract_tool_names",
 ]

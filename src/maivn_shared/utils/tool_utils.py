@@ -1,3 +1,4 @@
+# pyright: strict
 """Tool utility functions shared across maivn-graph and maivn-server.
 
 This module provides common operations for working with ToolSpec objects,
@@ -6,10 +7,13 @@ extracting names, and handling tool references.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Iterable, Mapping
+from typing import cast
+
+# MARK: Tool Names
 
 
-def extract_tool_names(tools: list[dict | Any]) -> list[str]:
+def extract_tool_names(tools: Iterable[object]) -> list[str]:
     """Extract tool names from ToolSpec objects or dicts.
 
     Handles both dict representations and ToolSpec objects with a .name attribute.
@@ -26,9 +30,17 @@ def extract_tool_names(tools: list[dict | Any]) -> list[str]:
         >>> extract_tool_names(tools)
         ['search', 'calculator']
     """
-    return [
-        name
-        for tool in tools
-        if (name := tool.get("name") if isinstance(tool, dict) else getattr(tool, "name", None))
-        is not None
-    ]
+    names: list[str] = []
+    for tool in tools:
+        if isinstance(tool, Mapping):
+            tool_mapping = cast(Mapping[object, object], tool)
+            name = tool_mapping.get("name")
+        else:
+            name = _get_name_attribute(tool)
+        if name is not None:
+            names.append(cast(str, name))
+    return names
+
+
+def _get_name_attribute(tool: object) -> object | None:
+    return cast(object | None, getattr(tool, "name", None))

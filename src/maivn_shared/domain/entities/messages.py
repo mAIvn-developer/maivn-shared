@@ -1,3 +1,4 @@
+# pyright: strict
 """Message types for agent communication.
 
 Re-exports LangChain message types for consistent usage across the codebase.
@@ -8,9 +9,8 @@ from __future__ import annotations
 import base64
 import mimetypes
 from pathlib import Path
-from typing import Any, Literal
+from typing import ClassVar, Literal, Protocol, TypeAlias, TypeGuard, cast
 
-# MARK: - Imports
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -20,9 +20,34 @@ from langchain_core.messages import (
 from langchain_core.messages import (
     HumanMessage as LangChainHumanMessage,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .pii_whitelist import PIIWhitelist
+
+# MARK: Configuration
+
+_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+_WIRE_ATTACHMENT_FILE_PATH_ERROR = (
+    "Attachment file paths are only allowed for local constructors; "
+    "wire payloads must use content_base64 or text_content."
+)
+
+# Initialize the mimetypes database once at import time so the first
+# ``guess_type`` call in a request does not pay the lazy system-file scan.
+mimetypes.init()
+
+
+# MARK: Types
+
+AttachmentPayload: TypeAlias = dict[str, object]
+MessageContent: TypeAlias = str | list[str | dict[str, object]]
+
+
+class ReadableBytesOrText(Protocol):
+    """File-like object that exposes a synchronous read method."""
+
+    def read(self) -> object: ...
+
 
 # MARK: - Private Data Model
 
@@ -87,12 +112,10 @@ class PrivateData(BaseModel):
         ),
     )
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
 
 # MARK: - Custom Message Types
-
-_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
 
 class HumanMessage(LangChainHumanMessage):
@@ -102,11 +125,11 @@ class HumanMessage(LangChainHumanMessage):
 
     def __init__(
         self,
-        content: Any,
+        content: object,
         *,
-        attachments: list[dict[str, Any]] | None = None,
+        attachments: list[AttachmentPayload] | None = None,
         allow_attachment_file_paths: bool = True,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> None:
         additional_kwargs = _normalize_additional_kwargs(kwargs.pop("additional_kwargs", None))
         raw_attachments = _collect_raw_attachments(
@@ -118,7 +141,11 @@ class HumanMessage(LangChainHumanMessage):
                 raw_attachments,
                 allow_file_paths=allow_attachment_file_paths,
             )
-        super().__init__(content=content, additional_kwargs=additional_kwargs, **kwargs)
+        super().__init__(  # pyright: ignore[reportUnknownMemberType]  # langchain_core message initializers expose Any in stubs
+            content=cast(MessageContent, content),
+            additional_kwargs=additional_kwargs,
+            **kwargs,
+        )
 
 
 class RedactedMessage(BaseMessage):
@@ -143,11 +170,11 @@ class RedactedMessage(BaseMessage):
 
     def __init__(
         self,
-        content: Any,
+        content: object,
         *,
-        attachments: list[dict[str, Any]] | None = None,
+        attachments: list[AttachmentPayload] | None = None,
         allow_attachment_file_paths: bool = True,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> None:
         additional_kwargs = _normalize_additional_kwargs(kwargs.pop("additional_kwargs", None))
         known_pii_values = normalize_known_pii_values(kwargs.pop("known_pii_values", None))
@@ -161,8 +188,8 @@ class RedactedMessage(BaseMessage):
                 raw_attachments,
                 allow_file_paths=allow_attachment_file_paths,
             )
-        super().__init__(
-            content=content,
+        super().__init__(  # pyright: ignore[reportUnknownMemberType]  # langchain_core BaseMessage initializer exposes Any in stubs
+            content=cast(MessageContent, content),
             additional_kwargs=additional_kwargs,
             known_pii_values=known_pii_values,
             pii_whitelist=pii_whitelist,
@@ -173,23 +200,24 @@ class RedactedMessage(BaseMessage):
 # MARK: - Helpers
 
 
-def _normalize_additional_kwargs(value: Any) -> dict[str, Any]:
+def _normalize_additional_kwargs(value: object) -> dict[str, object]:
     if isinstance(value, dict):
-        return dict(value)
+        payload = cast(dict[object, object], value)
+        return cast(dict[str, object], payload.copy())
     return {}
 
 
-def _normalize_pii_whitelist(value: Any) -> PIIWhitelist | None:
+def _normalize_pii_whitelist(value: object) -> PIIWhitelist | None:
     if value is None:
         return None
     if isinstance(value, PIIWhitelist):
         return value
     if isinstance(value, dict):
-        return PIIWhitelist.model_validate(value)
+        return PIIWhitelist.model_validate(cast(dict[str, object], value))
     raise TypeError("pii_whitelist must be a PIIWhitelist instance, dict, or None")
 
 
-def normalize_known_pii_values(value: Any) -> list[str | PrivateData] | None:
+def normalize_known_pii_values(value: object) -> list[str | PrivateData] | None:
     if value is None:
         return None
     if not isinstance(value, list):
@@ -197,7 +225,7 @@ def normalize_known_pii_values(value: Any) -> list[str | PrivateData] | None:
 
     normalized: list[str | PrivateData] = []
     seen: set[str] = set()
-    for item in value:
+    for item in cast(list[object], value):
         if isinstance(item, PrivateData):
             candidate_value = item.value.strip()
             if not candidate_value or candidate_value in seen:
@@ -215,8 +243,8 @@ def normalize_known_pii_values(value: Any) -> list[str | PrivateData] | None:
             normalized.append(item)
         elif isinstance(item, dict) and "value" in item:
             try:
-                pd = PrivateData.model_validate(item)
-            except Exception as err:
+                pd = PrivateData.model_validate(cast(dict[str, object], item))
+            except ValidationError as err:
                 raise TypeError("known_pii_values dict entries must be valid PrivateData") from err
             candidate_value = pd.value.strip()
             if not candidate_value or candidate_value in seen:
@@ -245,30 +273,42 @@ def normalize_known_pii_values(value: Any) -> list[str | PrivateData] | None:
 
 def _collect_raw_attachments(
     *,
-    additional_kwargs: dict[str, Any],
-    attachments: list[dict[str, Any]] | None,
-) -> list[dict[str, Any]]:
-    raw: list[dict[str, Any]] = []
+    additional_kwargs: dict[str, object],
+    attachments: object,
+) -> list[AttachmentPayload]:
+    raw: list[AttachmentPayload] = []
     nested = additional_kwargs.get("attachments")
     if isinstance(nested, list):
-        raw.extend(item for item in nested if isinstance(item, dict))
+        raw.extend(
+            cast(AttachmentPayload, cast(dict[object, object], item).copy())
+            for item in cast(list[object], nested)
+            if isinstance(item, dict)
+        )
     if isinstance(attachments, list):
-        raw.extend(item for item in attachments if isinstance(item, dict))
+        raw.extend(
+            cast(AttachmentPayload, cast(dict[object, object], item).copy())
+            for item in cast(list[object], attachments)
+            if isinstance(item, dict)
+        )
     return raw
 
 
 def _normalize_attachments(
-    raw_attachments: list[dict[str, Any]],
+    raw_attachments: list[AttachmentPayload],
     *,
     allow_file_paths: bool,
-) -> list[dict[str, Any]]:
-    normalized: list[dict[str, Any]] = []
+) -> list[AttachmentPayload]:
+    normalized: list[AttachmentPayload] = []
     for attachment in raw_attachments:
         normalized.append(_normalize_attachment(attachment, allow_file_paths=allow_file_paths))
     return normalized
 
 
-def _normalize_attachment(attachment: dict[str, Any], *, allow_file_paths: bool) -> dict[str, Any]:
+def _normalize_attachment(
+    attachment: AttachmentPayload,
+    *,
+    allow_file_paths: bool,
+) -> AttachmentPayload:
     payload = dict(attachment)
 
     content_bytes = _extract_attachment_bytes(payload, allow_file_paths=allow_file_paths)
@@ -279,7 +319,7 @@ def _normalize_attachment(attachment: dict[str, Any], *, allow_file_paths: bool)
 
     name = _resolve_attachment_name(payload) or "attachment.bin"
     mime_type = _resolve_mime_type(name=name, payload=payload)
-    output: dict[str, Any] = {
+    output: AttachmentPayload = {
         "name": name,
         "mime_type": mime_type,
         "content_base64": base64.b64encode(content_bytes).decode("ascii"),
@@ -292,14 +332,14 @@ def _normalize_attachment(attachment: dict[str, Any], *, allow_file_paths: bool)
 
     tags = payload.get("tags")
     if isinstance(tags, list):
-        normalized_tags = [str(tag).strip() for tag in tags if str(tag).strip()]
+        normalized_tags = [str(tag).strip() for tag in cast(list[object], tags) if str(tag).strip()]
         if normalized_tags:
             output["tags"] = normalized_tags
 
     return output
 
 
-def _extract_attachment_bytes(payload: dict[str, Any], *, allow_file_paths: bool) -> bytes:
+def _extract_attachment_bytes(payload: AttachmentPayload, *, allow_file_paths: bool) -> bytes:
     content_base64 = payload.get("content_base64")
     if isinstance(content_base64, str) and content_base64.strip():
         try:
@@ -327,24 +367,22 @@ def _extract_attachment_bytes(payload: dict[str, Any], *, allow_file_paths: bool
         return bytes(file_value)
     if isinstance(file_value, str | Path):
         if not allow_file_paths:
-            raise ValueError(
-                "Attachment file paths are only allowed for local constructors; "
-                "wire payloads must use content_base64 or text_content."
-            )
+            raise ValueError(_WIRE_ATTACHMENT_FILE_PATH_ERROR)
         file_path = Path(file_value)
         if file_path.exists() and file_path.is_file():
             return file_path.read_bytes()
-        return b""
-    if hasattr(file_value, "read"):
+        raise ValueError(f"Attachment file not found: {file_path}")
+    if _is_readable(file_value):
         raw = file_value.read()
         if isinstance(raw, str):
             return raw.encode("utf-8")
         if isinstance(raw, bytes):
             return raw
+        raise ValueError("Attachment file handle returned unsupported type")
     return b""
 
 
-def _resolve_attachment_name(payload: dict[str, Any]) -> str | None:
+def _resolve_attachment_name(payload: AttachmentPayload) -> str | None:
     for key in ("name", "filename"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
@@ -359,12 +397,16 @@ def _resolve_attachment_name(payload: dict[str, Any]) -> str | None:
     return None
 
 
-def _resolve_mime_type(*, name: str, payload: dict[str, Any]) -> str:
+def _resolve_mime_type(*, name: str, payload: AttachmentPayload) -> str:
     explicit = payload.get("mime_type")
     if isinstance(explicit, str) and explicit.strip():
         return explicit.strip()
     guessed, _ = mimetypes.guess_type(name)
     return guessed or "application/octet-stream"
+
+
+def _is_readable(value: object) -> TypeGuard[ReadableBytesOrText]:
+    return callable(getattr(value, "read", None))
 
 
 def _sanitize_filename(value: str) -> str:

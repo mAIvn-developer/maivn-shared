@@ -1,9 +1,12 @@
+# pyright: strict
 from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
 
 from maivn_shared import MemoryConfig, MemoryInsightExtractionConfig, MemoryRetrievalConfig
+
+# MARK: Tests
 
 
 def test_memory_insight_extraction_config_accepts_agent_or_swarm_scope() -> None:
@@ -16,15 +19,15 @@ def test_memory_insight_extraction_config_accepts_agent_or_swarm_scope() -> None
 
 def test_memory_insight_extraction_config_rejects_project_or_org_scope() -> None:
     with pytest.raises(ValidationError, match="agent"):
-        MemoryInsightExtractionConfig.model_validate({"sharing_scope": "project"})
+        _ = MemoryInsightExtractionConfig.model_validate({"sharing_scope": "project"})
 
     with pytest.raises(ValidationError, match="swarm"):
-        MemoryInsightExtractionConfig.model_validate({"sharing_scope": "org"})
+        _ = MemoryInsightExtractionConfig.model_validate({"sharing_scope": "org"})
 
 
 def test_memory_config_rejects_project_scope_for_auto_insight_extraction() -> None:
     with pytest.raises(ValidationError, match="agent"):
-        MemoryConfig.model_validate(
+        _ = MemoryConfig.model_validate(
             {
                 "insight_extraction": {
                     "enabled": True,

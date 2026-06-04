@@ -1,3 +1,4 @@
+# pyright: strict
 """Client-facing token usage model.
 
 This module contains only the simple TokenUsage model for SDK consumers.
@@ -23,6 +24,7 @@ All models use consistent field naming:
 - `output_tokens`: Output/completion tokens
 - `cache_read_tokens`: Tokens read from cache
 - `cache_creation_tokens`: Tokens written to cache
+- `reasoning_tokens`: Reasoning/thinking tokens (e.g. extended-thinking output)
 
 Note: Cost information is intentionally excluded from this public model.
 Cost details are internal and only available via `DetailedTokenUsage`.
@@ -48,6 +50,7 @@ class TokenUsage(BaseModel):
         output_tokens: Number of output tokens used.
         cache_read_tokens: Number of tokens read from cache.
         cache_creation_tokens: Number of tokens written to cache.
+        reasoning_tokens: Number of reasoning/thinking tokens used.
     """
 
     total_tokens: int = 0

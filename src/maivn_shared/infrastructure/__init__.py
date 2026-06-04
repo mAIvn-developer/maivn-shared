@@ -1,3 +1,4 @@
+# pyright: strict
 """Infrastructure layer for maivn-core.
 
 This layer contains infrastructure concerns that support the domain and core layers.
@@ -10,40 +11,35 @@ Currently includes:
 
 from __future__ import annotations
 
-# MARK: API
 from .api.endpoints import ServerEndpoints
-
-# MARK: Client Protocols
 from .client import (
     HttpClientProtocol,
     SessionClientProtocol,
     SSEClientProtocol,
 )
-
-# MARK: HTTP
 from .http_client import (
     HttpClient,
     HttpError,
 )
-
-# MARK: Logging
 from .logging import (
     MaivnLogger,
     get_logger,
     get_optional_logger,
 )
 
+# MARK: - Exports
+
 __all__ = [
-    # MARK: - HTTP Client
+    # HTTP Client
     "HttpClient",
     "HttpError",
-    # MARK: - Client Protocols
+    # Client Protocols
     "HttpClientProtocol",
     "SessionClientProtocol",
     "SSEClientProtocol",
-    # MARK: - API
+    # API
     "ServerEndpoints",
-    # MARK: - Logging
+    # Logging
     "MaivnLogger",
     "get_logger",
     "get_optional_logger",

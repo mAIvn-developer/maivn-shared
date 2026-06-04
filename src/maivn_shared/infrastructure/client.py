@@ -1,3 +1,4 @@
+# pyright: strict
 """Protocol definitions for HTTP client communication.
 
 This module defines interfaces for HTTP clients and session clients,
@@ -6,7 +7,14 @@ enabling flexible implementation and testing for maivn SDK and maivn-server comm
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from collections.abc import Iterator
+from typing import Protocol, TypeAlias
+
+from pydantic import JsonValue
+
+# MARK: - Types
+
+JsonObject: TypeAlias = dict[str, JsonValue]
 
 # MARK: - HTTP Client Protocol
 
@@ -18,10 +26,10 @@ class HttpClientProtocol(Protocol):
         self,
         url: str,
         *,
-        json: dict[str, Any] | None = None,
+        json: JsonObject | None = None,
         headers: dict[str, str] | None = None,
         timeout: float | None = None,
-    ) -> dict[str, Any]:
+    ) -> JsonValue:
         """Perform HTTP POST request.
 
         Args:
@@ -44,7 +52,7 @@ class HttpClientProtocol(Protocol):
         *,
         headers: dict[str, str] | None = None,
         timeout: float | None = None,
-    ) -> dict[str, Any]:
+    ) -> JsonValue:
         """Perform HTTP GET request.
 
         Args:
@@ -93,7 +101,7 @@ class SessionClientProtocol(Protocol):
         """
         ...
 
-    def start_session(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+    def start_session(self, *, payload: JsonObject) -> JsonObject:
         """Start a session via the server.
 
         Args:
@@ -137,7 +145,12 @@ class SessionClientProtocol(Protocol):
 class SSEClientProtocol(Protocol):
     """Protocol for Server-Sent Events client implementations."""
 
-    def iter_events(self, url: str) -> Any:
+    def iter_events(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> Iterator[object]:
         """Iterate over server-sent events.
 
         Args:

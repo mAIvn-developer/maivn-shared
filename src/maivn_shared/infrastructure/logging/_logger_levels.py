@@ -5,13 +5,12 @@ initialization and the low-level write path. ``log_custom`` is the single
 choke point every level method funnels through (via ``_log_at_level``).
 """
 
+# pyright: strict
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from .config import LogLevel
-
+from .config import LogLevel
 
 # MARK: MaivnLoggerLevelsMixin
 
@@ -19,9 +18,32 @@ if TYPE_CHECKING:
 class MaivnLoggerLevelsMixin:
     """Standard log-level methods (``debug``/``info``/``warning``/``error``/``critical``).
 
-    Assumes the concrete class provides ``_write_structured_log``,
-    ``_log_at_level``, and ``_truncate_message`` (all on :class:`MaivnLogger`).
+    Assumes the concrete class provides ``_write_structured_log`` and
+    ``_log_at_level`` (both on :class:`MaivnLogger`).
     """
+
+    if TYPE_CHECKING:
+
+        def _write_structured_log(
+            self,
+            level: LogLevel,
+            component: str,
+            event: str,
+            data: dict[str, object],
+        ) -> None:
+            del level, component, event, data
+            raise NotImplementedError
+
+        def _log_at_level(
+            self,
+            level: LogLevel,
+            message: str,
+            *args: object,
+            component: str,
+            **metadata: object,
+        ) -> None:
+            del level, message, args, component, metadata
+            raise NotImplementedError
 
     # MARK: - Core
 
@@ -30,37 +52,72 @@ class MaivnLoggerLevelsMixin:
         level: LogLevel,
         component: str,
         message: str,
-        **metadata: Any,
+        **metadata: object,
     ) -> None:
-        """Log a message at ``level`` with arbitrary structured metadata."""
-        self._write_structured_log(  # type: ignore[attr-defined]
+        """Log a message at ``level`` with arbitrary structured metadata.
+
+        The message is *not* truncated here: ``_write_structured_log`` clamps
+        the rendered message to ``_max_message_length`` at the single canonical
+        boundary, so truncating again at this entry point would be redundant.
+        """
+        self._write_structured_log(
             level=level,
             component=component,
             event="custom",
-            data={"message": self._truncate_message(message), **metadata},  # type: ignore[attr-defined]
+            data={"message": message, **metadata},
         )
 
     # MARK: - Standard Level Methods
 
-    def debug(self, message: str, *args: Any, component: str = "APP", **metadata: Any) -> None:
+    def debug(
+        self,
+        message: str,
+        *args: object,
+        component: str = "APP",
+        **metadata: object,
+    ) -> None:
         """Log a debug message."""
-        self._log_at_level("DEBUG", message, *args, component=component, **metadata)  # type: ignore[attr-defined]
+        self._log_at_level("DEBUG", message, *args, component=component, **metadata)
 
-    def info(self, message: str, *args: Any, component: str = "APP", **metadata: Any) -> None:
+    def info(
+        self,
+        message: str,
+        *args: object,
+        component: str = "APP",
+        **metadata: object,
+    ) -> None:
         """Log an info message."""
-        self._log_at_level("INFO", message, *args, component=component, **metadata)  # type: ignore[attr-defined]
+        self._log_at_level("INFO", message, *args, component=component, **metadata)
 
-    def warning(self, message: str, *args: Any, component: str = "APP", **metadata: Any) -> None:
+    def warning(
+        self,
+        message: str,
+        *args: object,
+        component: str = "APP",
+        **metadata: object,
+    ) -> None:
         """Log a warning message."""
-        self._log_at_level("WARNING", message, *args, component=component, **metadata)  # type: ignore[attr-defined]
+        self._log_at_level("WARNING", message, *args, component=component, **metadata)
 
-    def error(self, message: str, *args: Any, component: str = "APP", **metadata: Any) -> None:
+    def error(
+        self,
+        message: str,
+        *args: object,
+        component: str = "APP",
+        **metadata: object,
+    ) -> None:
         """Log an error message."""
-        self._log_at_level("ERROR", message, *args, component=component, **metadata)  # type: ignore[attr-defined]
+        self._log_at_level("ERROR", message, *args, component=component, **metadata)
 
-    def critical(self, message: str, *args: Any, component: str = "APP", **metadata: Any) -> None:
+    def critical(
+        self,
+        message: str,
+        *args: object,
+        component: str = "APP",
+        **metadata: object,
+    ) -> None:
         """Log a critical message."""
-        self._log_at_level("CRITICAL", message, *args, component=component, **metadata)  # type: ignore[attr-defined]
+        self._log_at_level("CRITICAL", message, *args, component=component, **metadata)
 
     # MARK: - Error Logging
 
@@ -70,7 +127,7 @@ class MaivnLoggerLevelsMixin:
         error_type: str,
         error_message: str,
         stack_trace: str | None = None,
-        **metadata: Any,
+        **metadata: object,
     ) -> None:
         """Log a structured error event including ``error_type`` and optional stack trace.
 
@@ -79,7 +136,7 @@ class MaivnLoggerLevelsMixin:
         ``"error event in <component>"`` fallback used by
         :func:`_write_structured_log` when ``data["message"]`` is missing.
         """
-        self._write_structured_log(  # type: ignore[attr-defined]
+        self._write_structured_log(
             level="ERROR",
             component=component,
             event="error",
@@ -92,7 +149,7 @@ class MaivnLoggerLevelsMixin:
             },
         )
 
-    def exception(self, message: str, component: str = "APP", **metadata: Any) -> None:
+    def exception(self, message: str, component: str = "APP", **metadata: object) -> None:
         """Log an exception with the current traceback attached."""
         import traceback
 

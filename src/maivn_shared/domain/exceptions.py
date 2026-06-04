@@ -1,3 +1,4 @@
+# pyright: strict
 """Shared exception hierarchy for Maivn packages.
 
 This module defines a base exception class and common exception types
@@ -12,11 +13,15 @@ Design Principles:
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import TypeAlias, cast
+
+from maivn_shared._redaction import redact_sensitive_data
 
 # MARK: - Constants
 
 _VALUE_TRUNCATE_LENGTH = 200
+_PUBLIC_ERROR_MESSAGE = "An internal error occurred."
 
 _RETRYABLE_EXCEPTION_NAMES = frozenset(
     {
@@ -26,6 +31,28 @@ _RETRYABLE_EXCEPTION_NAMES = frozenset(
         "TemporaryError",
     }
 )
+
+
+# MARK: - Types
+
+ErrorContext: TypeAlias = dict[str, object]
+ErrorPayload: TypeAlias = dict[str, object]
+
+
+# MARK: - Context Helpers
+
+
+def _copy_context(context: object | None) -> ErrorContext:
+    """Copy a context-like object using the same dict constructor semantics."""
+    return cast(ErrorContext, dict(cast(Mapping[object, object], context or {})))
+
+
+def _pop_base_error_fields(kwargs: ErrorContext) -> tuple[str | None, Exception | None]:
+    """Pop base MaivnError keyword fields from subclass kwargs."""
+    error_code = cast(str | None, kwargs.pop("error_code", None))
+    cause = cast(Exception | None, kwargs.pop("cause", None))
+    return error_code, cause
+
 
 # MARK: - Base Exception
 
@@ -47,9 +74,9 @@ class MaivnError(Exception):
         message: str,
         *,
         error_code: str | None = None,
-        context: dict[str, Any] | None = None,
+        context: ErrorContext | None = None,
         cause: Exception | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> None:
         """Initialize exception with structured error information.
 
@@ -61,48 +88,65 @@ class MaivnError(Exception):
             **kwargs: Additional context merged into context dict
         """
         super().__init__(message)
-        self.message = message
-        self.error_code = error_code or self.__class__.__name__
-        self.context = self._merge_context(context, kwargs)
-        self.cause = cause
+        self.message: str = message
+        self.error_code: str = error_code or self.__class__.__name__
+        self.context: ErrorContext = self._merge_context(context, kwargs)
+        self.cause: Exception | None = cause
 
         if cause is not None:
-            self.__cause__ = cause
+            self.__cause__: BaseException | None = cause
 
     @staticmethod
     def _merge_context(
-        context: dict[str, Any] | None,
-        kwargs: dict[str, Any],
-    ) -> dict[str, Any]:
+        context: ErrorContext | None,
+        kwargs: Mapping[str, object],
+    ) -> ErrorContext:
         """Merge explicit context with kwargs."""
-        merged: dict[str, Any] = dict(context or {})
+        merged = _copy_context(context)
         merged.update(kwargs)
         return merged
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert exception to structured dictionary.
+    def to_dict(self) -> ErrorPayload:
+        """Convert exception to a structured internal dictionary.
 
-        Useful for API responses, logging, and debugging.
+        This preserves the raw exception message for internal diagnostics, but
+        redacts sensitive context values and does not include raw cause text.
+        Use ``to_public_dict`` for public API responses or client-visible
+        errors.
 
         Returns:
             Dictionary with error_type, error_code, message, and optional
-            context and cause fields.
+            redacted context and cause type fields.
         """
-        result: dict[str, Any] = {
+        result: ErrorPayload = {
             "error_type": self.__class__.__name__,
             "error_code": self.error_code,
             "message": self.message,
         }
 
         if self.context:
-            result["context"] = self.context
+            result["context"] = cast(ErrorContext, redact_sensitive_data(self.context))
 
         if self.cause:
-            result["cause"] = str(self.cause)
+            result["cause"] = type(self.cause).__name__
 
         return result
 
-    def with_context(self, **additional_context: Any) -> MaivnError:
+    def to_public_dict(self, *, message: str = _PUBLIC_ERROR_MESSAGE) -> ErrorPayload:
+        """Convert exception to a public-safe dictionary.
+
+        The public representation intentionally excludes raw exception text,
+        args, context, and causes because those fields often carry private
+        request data or internal implementation details.
+        """
+        return {
+            "error_type": self.__class__.__name__,
+            "error_code": self.error_code,
+            "message": message,
+            "retryable": is_retryable(self),
+        }
+
+    def with_context(self, **additional_context: object) -> MaivnError:
         """Return a new exception with additional context.
 
         This does not modify the original exception.
@@ -113,7 +157,7 @@ class MaivnError(Exception):
         Returns:
             New exception with merged context
         """
-        return self.__class__(
+        return type(self)(
             self.message,
             error_code=self.error_code,
             context={**self.context, **additional_context},
@@ -139,9 +183,9 @@ class ConfigurationError(MaivnError):
         *,
         setting: str | None = None,
         expected: str | None = None,
-        actual: Any = None,
+        actual: object = None,
         suggestion: str | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> None:
         """Initialize configuration error.
 
@@ -153,6 +197,7 @@ class ConfigurationError(MaivnError):
             suggestion: Suggestion for fixing the issue
             **kwargs: Additional context
         """
+        error_code, cause = _pop_base_error_fields(kwargs)
         context = self._build_context(
             kwargs.pop("context", None),
             setting=setting,
@@ -160,15 +205,16 @@ class ConfigurationError(MaivnError):
             actual=str(actual) if actual is not None else None,
             suggestion=suggestion,
         )
-        super().__init__(message, context=context, **kwargs)
+        context.update(kwargs)
+        super().__init__(message, error_code=error_code, context=context, cause=cause)
 
     @staticmethod
     def _build_context(
-        base_context: dict[str, Any] | None,
-        **fields: Any,
-    ) -> dict[str, Any]:
+        base_context: object | None,
+        **fields: object,
+    ) -> ErrorContext:
         """Build context dict from base and optional fields."""
-        context = dict(base_context or {})
+        context = _copy_context(base_context)
         for key, value in fields.items():
             if value is not None:
                 context[key] = value
@@ -192,9 +238,9 @@ class ValidationError(MaivnError):
         message: str,
         *,
         field: str | None = None,
-        value: Any = None,
+        value: object = None,
         rule: str | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> None:
         """Initialize validation error.
 
@@ -205,7 +251,8 @@ class ValidationError(MaivnError):
             rule: Validation rule that was violated
             **kwargs: Additional context
         """
-        context = dict(kwargs.pop("context", None) or {})
+        error_code, cause = _pop_base_error_fields(kwargs)
+        context = _copy_context(kwargs.pop("context", None))
 
         if field is not None:
             context["field"] = field
@@ -214,7 +261,8 @@ class ValidationError(MaivnError):
         if rule is not None:
             context["rule"] = rule
 
-        super().__init__(message, context=context, **kwargs)
+        context.update(kwargs)
+        super().__init__(message, error_code=error_code, context=context, cause=cause)
 
 
 # MARK: - Serialization Errors
@@ -235,7 +283,7 @@ class SerializationError(MaivnError):
         *,
         data_type: str | None = None,
         operation: str | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> None:
         """Initialize serialization error.
 
@@ -245,14 +293,16 @@ class SerializationError(MaivnError):
             operation: Operation that failed ('serialize' or 'deserialize')
             **kwargs: Additional context
         """
-        context = dict(kwargs.pop("context", None) or {})
+        error_code, cause = _pop_base_error_fields(kwargs)
+        context = _copy_context(kwargs.pop("context", None))
 
         if data_type is not None:
             context["data_type"] = data_type
         if operation is not None:
             context["operation"] = operation
 
-        super().__init__(message, context=context, **kwargs)
+        context.update(kwargs)
+        super().__init__(message, error_code=error_code, context=context, cause=cause)
 
 
 # MARK: - Utility Functions
@@ -262,7 +312,7 @@ def wrap_exception(
     original: Exception,
     wrapper_type: type[MaivnError] = MaivnError,
     message: str | None = None,
-    **context: Any,
+    **context: object,
 ) -> MaivnError:
     """Wrap a generic exception in a MaivnError.
 
@@ -281,10 +331,15 @@ def wrap_exception(
     if isinstance(original, MaivnError):
         return original.with_context(**context) if context else original
 
+    error_code, _ = _pop_base_error_fields(context)
+    wrapped_context = _copy_context(context.pop("context", None))
+    wrapped_context.update(context)
+
     return wrapper_type(
         message or str(original),
+        error_code=error_code,
+        context=wrapped_context,
         cause=original,
-        **context,
     )
 
 

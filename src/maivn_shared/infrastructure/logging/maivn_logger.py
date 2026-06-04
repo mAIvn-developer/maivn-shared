@@ -6,10 +6,16 @@ infrastructure shared by all of them: configuring the writer, building
 log entries, formatting console/file output, and bounding payload size.
 """
 
+# pyright: strict
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import cast
+
+from typing_extensions import override
+
+from maivn_shared._redaction import REDACTED, is_sensitive_key
 
 from ._logger_execution import MaivnLoggerExecutionMixin
 from ._logger_levels import MaivnLoggerLevelsMixin
@@ -70,21 +76,17 @@ class MaivnLogger(
             human_readable_console: Use the human-readable console format
                 when True; emit raw JSON when False.
         """
-        if hasattr(self, "_initialized"):
-            return
-
-        self._initialized = True
-        self._use_colors = use_colors
-        self._human_readable_console = human_readable_console
-        self._console_level = console_level
-        self._file_level = file_level
-        self._level_priority = LOG_LEVEL_PRIORITY
-        self._context_manager = ContextManager()
-        self._writer = self._create_writer(log_file_path)
-        self._max_message_length = max(64, DEFAULT_MAX_MESSAGE_LENGTH)
-        self._max_string_length = max(64, DEFAULT_MAX_STRING_LENGTH)
-        self._max_collection_items = max(1, DEFAULT_MAX_COLLECTION_ITEMS)
-        self._startup_logged = False
+        self._use_colors: bool = use_colors
+        self._human_readable_console: bool = human_readable_console
+        self._console_level: LogLevel = console_level
+        self._file_level: LogLevel = file_level
+        self._level_priority: dict[LogLevel, int] = LOG_LEVEL_PRIORITY
+        self._context_manager: ContextManager = ContextManager()
+        self._writer: LogWriter = self._create_writer(log_file_path)
+        self._max_message_length: int = max(64, DEFAULT_MAX_MESSAGE_LENGTH)
+        self._max_string_length: int = max(64, DEFAULT_MAX_STRING_LENGTH)
+        self._max_collection_items: int = max(1, DEFAULT_MAX_COLLECTION_ITEMS)
+        self._startup_logged: bool = False
         self._log_startup_once()
 
     def _create_writer(self, log_file_path: Path | str | None) -> LogWriter:
@@ -94,15 +96,21 @@ class MaivnLogger(
             log_file.parent.mkdir(exist_ok=True, parents=True)
         return LogWriter(log_file)
 
+    def enable_file_logging(self, log_file_path: Path | str) -> None:
+        """Enable file logging by installing a file-backed writer."""
+        if self._writer.file_logging_enabled:
+            return
+        self._writer = self._create_writer(log_file_path)
+
     def _log_startup_once(self) -> None:
         """Emit the startup banner exactly once per logger instance."""
-        if self._initialized and not self._startup_logged:
+        if not self._startup_logged:
             self._startup_logged = True
             self.log_system_startup()
 
     # MARK: - Context Management
 
-    def set_context(self, **kwargs: Any) -> None:
+    def set_context(self, **kwargs: object) -> None:
         """Set context values that attach to all subsequent log entries."""
         self._context_manager.set(**kwargs)
 
@@ -110,12 +118,13 @@ class MaivnLogger(
         """Clear specific context keys, or all of them if no keys are passed."""
         self._context_manager.clear(*keys)
 
-    def get_context(self) -> dict[str, Any]:
+    def get_context(self) -> dict[str, object]:
         """Return a copy of the current execution context's logging state."""
         return self._context_manager.get_context()
 
     # MARK: - Write Path
 
+    @override
     def _should_log_to_console(self, level: LogLevel) -> bool:
         """Return True if ``level`` clears the configured console threshold."""
         return self._level_priority[level] >= self._level_priority[self._console_level]
@@ -124,25 +133,36 @@ class MaivnLogger(
         """Return True if ``level`` clears the configured file threshold."""
         return self._level_priority[level] >= self._level_priority[self._file_level]
 
+    @override
     def _log_at_level(
-        self, level: LogLevel, message: str, *args: Any, component: str, **metadata: Any
+        self, level: LogLevel, message: str, *args: object, component: str, **metadata: object
     ) -> None:
         """Format ``message`` against ``args`` (printf-style) and dispatch via ``log_custom``."""
         formatted_message = message % args if args else message
         self.log_custom(level=level, component=component, message=formatted_message, **metadata)
 
+    @override
     def _write_structured_log(
         self,
         level: LogLevel,
         component: str,
         event: str,
-        data: dict[str, Any],
+        data: dict[str, object],
     ) -> None:
-        """Build, sanitize, and emit a structured log entry to console + file."""
-        sanitized_data = self._sanitize_mapping(data)
-        entry = self._build_log_entry(level, component, event, sanitized_data)
+        """Build, sanitize, and emit a structured log entry to console + file.
+
+        The level filter runs *before* any payload work: when both the console
+        and file thresholds reject ``level`` the call short-circuits without
+        sanitizing the payload or building an entry (the discarded output would
+        be a no-op write anyway). This keeps disabled-level hot paths cheap.
+        """
         to_console = self._should_log_to_console(level)
         to_file = self._writer.file_logging_enabled and self._should_log_to_file(level)
+        if not to_console and not to_file:
+            return
+
+        sanitized_data = self._sanitize_mapping(data)
+        entry = self._build_log_entry(level, component, event, sanitized_data)
         message_value = sanitized_data.get("message")
         message = (
             self._truncate_message(message_value)
@@ -158,10 +178,10 @@ class MaivnLogger(
         self._writer.write_dual(console_line, file_line, to_console)
 
     def _build_log_entry(
-        self, level: LogLevel, component: str, event: str, data: dict[str, Any]
-    ) -> dict[str, Any]:
+        self, level: LogLevel, component: str, event: str, data: dict[str, object]
+    ) -> dict[str, object]:
         """Assemble the structured entry dict with timestamp, level, component, event, and data."""
-        entry: dict[str, Any] = {
+        entry: dict[str, object] = {
             "timestamp": TimestampFormatter.format_timestamp(),
             "level": level,
             "component": component,
@@ -177,7 +197,7 @@ class MaivnLogger(
         return entry
 
     def _format_console_line(
-        self, entry: dict[str, Any], level: LogLevel, component: str, message: str
+        self, entry: dict[str, object], level: LogLevel, component: str, message: str
     ) -> str:
         """Render a log entry for the console (human-readable or JSON)."""
         if self._human_readable_console:
@@ -191,7 +211,7 @@ class MaivnLogger(
 
     def _format_file_line(
         self,
-        entry: dict[str, Any],
+        entry: dict[str, object],
         level: LogLevel,
         component: str,
         message: str,
@@ -213,12 +233,16 @@ class MaivnLogger(
             message,
         )
 
-    def _extract_correlation_tokens(self, entry: dict[str, Any]) -> str:
+    def _extract_correlation_tokens(self, entry: dict[str, object]) -> str:
         """Collect compact correlation fields (session_id, thread_id, …) for file logs."""
         context = entry.get("context")
         data = entry.get("data")
-        context_map = context if isinstance(context, dict) else {}
-        data_map = data if isinstance(data, dict) else {}
+        context_map: Mapping[str, object] = (
+            cast(Mapping[str, object], context) if isinstance(context, dict) else {}
+        )
+        data_map: Mapping[str, object] = (
+            cast(Mapping[str, object], data) if isinstance(data, dict) else {}
+        )
 
         keys = (
             "session_id",
@@ -260,15 +284,20 @@ class MaivnLogger(
             return value[:max_length]
         return f"{value[: max_length - 3]}..."
 
-    def _sanitize_mapping(self, data: dict[str, Any]) -> dict[str, Any]:
+    def _sanitize_mapping(self, data: dict[str, object]) -> dict[str, object]:
         """Sanitize a top-level dict payload to bounded depth/breadth/length."""
         visited: set[int] = set()
         items = list(data.items())
         limited_items = items[: self._max_collection_items]
 
-        sanitized: dict[str, Any] = {}
+        sanitized: dict[str, object] = {}
         for key, value in limited_items:
-            sanitized[str(key)] = self._sanitize_value(value, visited=visited, depth=0)
+            normalized_key = str(key)
+            sanitized[normalized_key] = (
+                REDACTED
+                if is_sensitive_key(normalized_key)
+                else self._sanitize_value(value, visited=visited, depth=0)
+            )
 
         remaining = len(items) - len(limited_items)
         if remaining > 0:
@@ -276,7 +305,7 @@ class MaivnLogger(
 
         return sanitized
 
-    def _sanitize_value(self, value: Any, *, visited: set[int], depth: int) -> Any:
+    def _sanitize_value(self, value: object, *, visited: set[int], depth: int) -> object:
         """Recursively bound payload values; protect against cycles and depth explosions."""
         if value is None or isinstance(value, (bool, int, float)):
             return value
@@ -296,14 +325,20 @@ class MaivnLogger(
 
         if isinstance(value, dict):
             visited.add(obj_id)
-            items = list(value.items())
+            mapping = cast(Mapping[object, object], value)
+            items = list(mapping.items())
             limited_items = items[: self._max_collection_items]
-            nested: dict[str, Any] = {}
+            nested: dict[str, object] = {}
             for key, nested_value in limited_items:
-                nested[str(key)] = self._sanitize_value(
-                    nested_value,
-                    visited=visited,
-                    depth=depth + 1,
+                normalized_key = str(key)
+                nested[normalized_key] = (
+                    REDACTED
+                    if is_sensitive_key(normalized_key)
+                    else self._sanitize_value(
+                        nested_value,
+                        visited=visited,
+                        depth=depth + 1,
+                    )
                 )
 
             remaining = len(items) - len(limited_items)
@@ -314,7 +349,7 @@ class MaivnLogger(
 
         if isinstance(value, (list, tuple, set, frozenset)):
             visited.add(obj_id)
-            sequence = list(value)
+            sequence = list(cast(Iterable[object], value))
             limited_items = sequence[: self._max_collection_items]
             nested_list = [
                 self._sanitize_value(item, visited=visited, depth=depth + 1)

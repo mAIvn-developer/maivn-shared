@@ -248,7 +248,6 @@ from maivn_shared import constants
 # Use shared constants
 timeout = constants.DEFAULT_TASK_TIMEOUT_SECONDS
 separator = constants.INPUT_SEPARATOR
-# Note: MOCK_USER_ID moved to maivn-server (environment-specific)
 ```
 
 ### Logging
@@ -417,5 +416,4 @@ See LICENSE file in the repository root.
 ## Related Packages
 
 - **maivn**: Public SDK that depends on `maivn-shared`
-- **maivn-internal-shared**: Private service-only shared code
-- **maivn-server** / **maivn-agents**: Service repos that consume these contracts
+- **maivn-tools**: Optional connector layer for the mAIvn SDK

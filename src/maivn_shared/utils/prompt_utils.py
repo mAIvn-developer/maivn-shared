@@ -1,17 +1,28 @@
+# pyright: strict
 """Utilities for loading and formatting prompts from markdown files."""
 
 from __future__ import annotations
 
+import logging
+import re
+from collections.abc import Mapping
+from functools import cache
+from importlib import import_module
 from importlib import resources as _resources
 from importlib.resources import read_text as read_resource_text
 from pathlib import Path
 from string import Template
-from typing import Any
+
+# MARK: - Constants
+
+_logger = logging.getLogger(__name__)
+_PROMPT_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9_.-]*$")
+
 
 # MARK: - Public API
 
 
-def load_prompt(filename: str, package_name: str, **kwargs: Any) -> str:
+def load_prompt(filename: str, package_name: str, **kwargs: object) -> str:
     """Load a markdown prompt from a package's prompts directory.
 
     Args:
@@ -28,11 +39,15 @@ def load_prompt(filename: str, package_name: str, **kwargs: Any) -> str:
     Use $var or ${var} syntax for variable substitution.
     """
     normalized_filename = _normalize_prompt_filename(filename)
-    text = _load_prompt_text(normalized_filename, package_name)
-    return render_prompt(text, **kwargs)
+    text = load_prompt_text(normalized_filename, package_name)
+    return render_prompt(text, kwargs=kwargs)
 
 
-def render_prompt(text: str, kwargs: dict[str, Any] | None = None, **extra_kwargs: Any) -> str:
+def render_prompt(
+    text: str,
+    kwargs: Mapping[str, object] | None = None,
+    **extra_kwargs: object,
+) -> str:
     """Format prompt text using Template for safe substitution.
 
     Args:
@@ -43,7 +58,7 @@ def render_prompt(text: str, kwargs: dict[str, Any] | None = None, **extra_kwarg
     Returns:
         Formatted prompt text
     """
-    substitutions = dict(kwargs or {})
+    substitutions: dict[str, object] = dict(kwargs or {})
     substitutions.update(extra_kwargs)
     template = Template(text)
     return template.safe_substitute(**substitutions)
@@ -52,8 +67,16 @@ def render_prompt(text: str, kwargs: dict[str, Any] | None = None, **extra_kwarg
 # MARK: - File Loading
 
 
-def _load_prompt_text(filename: str, package_name: str) -> str:
+@cache
+def load_prompt_text(filename: str, package_name: str) -> str:
     """Load prompt text from package resource.
+
+    Cached on ``(filename, package_name)`` (filename is already the normalized,
+    traversal-checked package-relative path). Prompts are effectively static at
+    runtime, so caching avoids re-importing the package, re-stat-ing the path,
+    and re-scanning the directory on every (possibly per-request) call. The
+    tradeoff: live hot-reload of prompt files in dev is disabled until the
+    process restarts (accepted per shared-utils-6).
 
     Attempts loading in order:
     1. Direct file path from package module location
@@ -90,10 +113,10 @@ def _try_load_from_filesystem(filename: str, package_name: str) -> str | None:
         File content if found, None otherwise
     """
     try:
-        pkg_module = __import__(package_name, fromlist=[""])
+        pkg_module = import_module(package_name)
         pkg_file = getattr(pkg_module, "__file__", None)
 
-        if not pkg_file:
+        if not isinstance(pkg_file, str):
             return None
 
         base_dir = Path(pkg_file).parent
@@ -108,7 +131,10 @@ def _try_load_from_filesystem(filename: str, package_name: str) -> str | None:
         if matched_path:
             return matched_path.read_text(encoding="utf-8")
 
-    except (ModuleNotFoundError, ImportError, OSError, AttributeError, ValueError):
+    except (ModuleNotFoundError, ImportError, OSError, AttributeError, ValueError) as exc:
+        # Expected-absence fallback: degrade to the importlib.resources path. Log
+        # at debug so a real I/O fault (e.g. a corrupt resource) is diagnosable.
+        _logger.debug("Filesystem prompt load failed for %r in %r: %s", filename, package_name, exc)
         return None
 
     return None
@@ -129,7 +155,8 @@ def _find_case_insensitive_file(directory: Path, filename: str) -> Path | None:
         for file_path in directory.iterdir():
             if file_path.is_file() and file_path.name.lower() == filename_lower:
                 return file_path
-    except OSError:
+    except OSError as exc:
+        _logger.debug("Case-insensitive scan of %r failed: %s", directory, exc)
         return None
     return None
 
@@ -147,26 +174,11 @@ def _load_from_package_resources(filename: str, package_name: str) -> str:
     Raises:
         FileNotFoundError: If file not found in package resources
     """
-    if "/" in filename or "\\" in filename:
-        normalized = filename.replace("\\", "/")
-        parts = [part for part in normalized.split("/") if part]
-        try:
-            resource = _resources.files(package_name)
-            for part in parts:
-                resource = _join_resource_case_insensitive(resource, part)
-            if resource.is_file():
-                with _resources.as_file(resource) as resource_path:
-                    return resource_path.read_text(encoding="utf-8")
-        except (FileNotFoundError, ModuleNotFoundError, ImportError, OSError, ValueError):
-            pass
-
-        raise FileNotFoundError(f"Prompt file not found: {filename} in package {package_name}")
-
     # Try exact match
     try:
         return read_resource_text(package_name, filename, encoding="utf-8")
-    except (FileNotFoundError, ModuleNotFoundError, ImportError, OSError, ValueError):
-        pass
+    except (FileNotFoundError, ModuleNotFoundError, ImportError, OSError, ValueError) as exc:
+        _logger.debug("Exact resource load failed for %r in %r: %s", filename, package_name, exc)
 
     # Try case-insensitive lookup
     filename_lower = filename.lower()
@@ -176,46 +188,52 @@ def _load_from_package_resources(filename: str, package_name: str) -> str:
             if resource.name.lower() == filename_lower:
                 with _resources.as_file(resource) as resource_path:
                     return resource_path.read_text(encoding="utf-8")
-    except (FileNotFoundError, ModuleNotFoundError, ImportError, OSError):
-        pass
+    except (FileNotFoundError, ModuleNotFoundError, ImportError, OSError) as exc:
+        _logger.debug(
+            "Case-insensitive resource scan failed for %r in %r: %s", filename, package_name, exc
+        )
 
     raise FileNotFoundError(f"Prompt file not found: {filename} in package {package_name}")
-
-
-def _join_resource_case_insensitive(resource: Any, target_name: str) -> Any:
-    target_lower = target_name.lower()
-    try:
-        for child in resource.iterdir():
-            if child.name.lower() == target_lower:
-                return child
-    except (AttributeError, FileNotFoundError, OSError, ValueError):
-        return resource.joinpath(target_name)
-    return resource.joinpath(target_name)
 
 
 # MARK: - Text Processing
 
 
 def _normalize_prompt_filename(filename: str) -> str:
-    """Normalize a package-local prompt path and reject traversal.
+    """Normalize and validate a package-relative prompt path.
+
+    Allows one or more safe path segments under the prompts package (for example
+    ``assignment_agent/job/SCOPE``) but rejects traversal, absolute paths, and
+    drive-letter prefixes.
 
     Args:
         filename: Original filename
 
     Returns:
-        Filename with .md extension
+        Normalized path ending in ``.md``
 
     Raises:
-        ValueError: If filename is empty, absolute, or contains traversal segments.
+        ValueError: If filename is not a safe package-relative Markdown path.
     """
-    candidate = filename.replace("\\", "/").strip()
-    if not candidate:
-        raise ValueError("Prompt filename cannot be empty")
-    if Path(candidate).is_absolute():
-        raise ValueError("Prompt filename must be package-relative")
+    if not filename:
+        raise ValueError("Prompt filename must be a plain Markdown file name")
 
-    parts = candidate.split("/")
-    if any(part in {"", ".", ".."} for part in parts):
-        raise ValueError("Prompt filename must not contain empty or traversal path segments")
+    if filename != filename.strip():
+        raise ValueError("Prompt filename must be a plain Markdown file name")
 
-    return candidate if candidate.endswith(".md") else f"{candidate}.md"
+    normalized = filename.replace("\\", "/")
+    if normalized.startswith("/") or ".." in normalized.split("/") or ":" in normalized:
+        raise ValueError("Prompt filename must be a plain Markdown file name")
+
+    segments = normalized.split("/")
+    if not segments or any(not segment for segment in segments):
+        raise ValueError("Prompt filename must be a plain Markdown file name")
+
+    if not segments[-1].lower().endswith(".md"):
+        segments[-1] = f"{segments[-1]}.md"
+
+    for segment in segments:
+        if not _PROMPT_SEGMENT_RE.fullmatch(segment):
+            raise ValueError("Prompt filename must be a plain Markdown file name")
+
+    return "/".join(segments)

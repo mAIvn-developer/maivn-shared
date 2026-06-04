@@ -1,14 +1,19 @@
+# pyright: strict
 from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from typing import Any, Protocol
+from typing import Protocol, cast
 
 # MARK: - Protocols
 
 
 class _WarnLogger(Protocol):
-    def warning(self, message: str, /, *args: Any, **kwargs: Any) -> None: ...
+    # Minimal warn surface for env-var fallbacks. Kept to (message, *args) so any
+    # real logger (stdlib `logging.Logger`, `MaivnLogger` / `MaivnServerLogger`) is
+    # assignable here. Do NOT add `**kwargs` — it breaks contravariance against
+    # those loggers' specifically-typed keyword parameters.
+    def warning(self, message: str, /, *args: object) -> None: ...
 
 
 # MARK: - Types
@@ -16,7 +21,9 @@ class _WarnLogger(Protocol):
 
 EnvMapping = Mapping[str, str]
 
-_FALSY_VALUES = frozenset({"0", "false", "False", "FALSE", "no", "No", "NO", ""})
+# Compared against `raw.strip().lower()`, so this set is lowercase-only and
+# matches any casing / surrounding whitespace of the listed tokens.
+_FALSY_VALUES = frozenset({"0", "false", "no", "off", ""})
 
 
 # MARK: - Environment Resolution
@@ -41,7 +48,7 @@ def get_env_bool(name: str, default: bool, env: EnvMapping) -> bool:
     raw = env.get(name)
     if raw is None:
         return default
-    return raw not in _FALSY_VALUES
+    return raw.strip().lower() not in _FALSY_VALUES
 
 
 def get_env_float(
@@ -59,7 +66,7 @@ def get_env_float(
         return float(raw)
     except ValueError:
         if logger is not None:
-            logger.warning("Invalid float for %s=%s. Using default %s.", name, raw, default)
+            logger.warning("Invalid float for %s. Using default %s.", name, default)
         return default
 
 
@@ -78,20 +85,20 @@ def get_env_int(
         return int(raw)
     except ValueError:
         if logger is not None:
-            logger.warning("Invalid int for %s=%s. Using default %s.", name, raw, default)
+            logger.warning("Invalid int for %s. Using default %s.", name, default)
         return default
 
 
 # MARK: - Dictionary Utilities
 
 
-def remove_none_values(d: dict[str, Any]) -> dict[str, Any]:
+def remove_none_values(d: Mapping[str, object | None]) -> dict[str, object]:
     """Recursively remove None values from a dictionary."""
-    cleaned: dict[str, Any] = {}
+    cleaned: dict[str, object] = {}
 
     for key, value in d.items():
         if isinstance(value, dict):
-            nested = remove_none_values(value)
+            nested = remove_none_values(cast(Mapping[str, object | None], value))
             if nested:
                 cleaned[key] = nested
         elif value is not None:

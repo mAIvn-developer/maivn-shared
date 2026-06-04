@@ -1,8 +1,11 @@
+# pyright: strict
 """Time helpers for UTC timestamps."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
+
+# MARK: Time Helpers
 
 
 def utc_now_iso() -> str:

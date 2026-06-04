@@ -1,3 +1,4 @@
+# pyright: strict
 """Data utilities for maivn-core."""
 
 from __future__ import annotations

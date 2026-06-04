@@ -7,6 +7,7 @@ This module provides MaivnLogger for platform-wide logging with:
 - Console and file output with formatting options
 """
 
+# pyright: strict
 from __future__ import annotations
 
 # MARK: - Configuration

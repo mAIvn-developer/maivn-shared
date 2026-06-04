@@ -1,26 +1,34 @@
+# pyright: strict
 from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
 from dataclasses import is_dataclass
-from typing import Any, get_type_hints
+from typing import cast
 
-from maivn_shared.domain.entities.tool_spec import ToolSpec, ToolType
+from pydantic import JsonValue
 
+from ...entities.tool_spec import ToolSpec, ToolType
 from .docstring_utils import extract_function_description, parse_docstring_args
-from .schema_utils import build_dataclass_schema, build_property_schema
+from .schema_utils import (
+    JsonSchema,
+    build_dataclass_schema,
+    build_object_schema,
+    build_property_schema,
+    type_hints,
+)
 
 # MARK: - Public API
 
 
 def build_tool_spec_from_function(
-    func: Callable[..., Any],
+    func: Callable[..., object],
     *,
     tool_id: str,
     agent_id: str = "system_agents",
     name: str | None = None,
     tool_type: ToolType = "agent",
-    metadata: dict[str, Any] | None = None,
+    metadata: dict[str, object] | None = None,
     always_execute: bool = False,
     final_tool: bool = False,
 ) -> ToolSpec:
@@ -40,43 +48,42 @@ def build_tool_spec_from_function(
         args_schema=args_schema,
         always_execute=always_execute,
         final_tool=final_tool,
-        metadata=resolved_metadata,
+        metadata=cast(JsonSchema, resolved_metadata),
     )
 
 
 # MARK: - Schema Building
 
 
-def _build_args_schema_from_function(func: Callable[..., Any]) -> dict[str, Any]:
+def _build_args_schema_from_function(func: Callable[..., object]) -> JsonSchema:
     """Build args schema from function signature and type hints."""
-    hints = get_type_hints(func, include_extras=True)
+    hints = type_hints(func)
     sig = inspect.signature(func)
     param_docs = parse_docstring_args(func.__doc__ or "")
 
-    properties: dict[str, Any] = {}
+    properties: dict[str, JsonValue] = {}
     required: list[str] = []
 
     for param_name, param in sig.parameters.items():
         if param_name in ("self", "cls"):
             continue
 
-        param_type = hints.get(param_name, Any)
+        param_type = hints.get(param_name, object)
         param_description = param_docs.get(param_name, "")
 
         properties[param_name] = build_property_schema(param_type, param_description)
 
-        if param.default is inspect.Parameter.empty:
+        default_value = cast(object, param.default)
+        if default_value is inspect.Parameter.empty:
             required.append(param_name)
 
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": required,
-    }
+    schema = build_object_schema(properties)
+    schema["required"] = cast(JsonValue, required)
+    return schema
 
 
-def _build_return_schema_from_type(return_type: Any) -> dict[str, Any]:
-    """Build a return schema from a return type annotation."""
+def _build_return_type_schema_from_annotation(return_type: object) -> JsonSchema:
+    """Build a return-type schema from a function's return annotation."""
     if is_dataclass(return_type) and isinstance(return_type, type):
         return build_dataclass_schema(return_type)
 
@@ -87,17 +94,17 @@ def _build_return_schema_from_type(return_type: Any) -> dict[str, Any]:
 
 
 def _build_metadata(
-    func: Callable[..., Any],
-    metadata: dict[str, Any] | None,
-) -> dict[str, Any]:
+    func: Callable[..., object],
+    metadata: dict[str, object] | None,
+) -> dict[str, object]:
     """Build metadata dict with return type schema if applicable."""
-    hints = get_type_hints(func, include_extras=True)
+    hints = type_hints(func)
     return_type = hints.get("return")
 
-    resolved_metadata = metadata.copy() if metadata else {}
+    resolved_metadata: dict[str, object] = metadata.copy() if metadata else {}
     resolved_metadata["type"] = "SYSTEM"
 
     if return_type is not None:
-        resolved_metadata["return_type"] = _build_return_schema_from_type(return_type)
+        resolved_metadata["return_type"] = _build_return_type_schema_from_annotation(return_type)
 
     return resolved_metadata

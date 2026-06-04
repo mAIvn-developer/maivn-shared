@@ -1,18 +1,18 @@
+# pyright: strict
 """Session-related data models shared across projects."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Literal, TypeAlias, cast
 
-from pydantic import BaseModel, Field, computed_field, field_serializer, field_validator
+from pydantic import BaseModel, Field, JsonValue, computed_field, field_serializer, field_validator
 
 from ...core.data.id_generator import create_uuid
 from ...utils.token_models import TokenUsage
 from .memory_config import MemoryConfig, is_reserved_memory_metadata_key
 from .messages import (
     BaseMessage,
-    HumanMessage,
     PrivateData,
     RedactedMessage,
     normalize_known_pii_values,
@@ -27,102 +27,43 @@ from .session_config import (
     SystemToolsConfig,
     is_reserved_session_config_metadata_key,
 )
+from .session_request_coercion import (
+    coerce_human_or_redacted_message,
+    normalize_attachment_payloads,
+)
 from .tool_spec import ToolSpec
+
+# MARK: Configuration
+
+_RESERVED_MEMORY_METADATA_ERROR = (
+    "Reserved memory metadata keys are not allowed in metadata; use memory_config instead"
+)
+_RESERVED_SESSION_METADATA_ERROR = (
+    "Reserved session-control metadata keys are not allowed in metadata; "
+    "use typed session config fields instead"
+)
+
+
+# MARK: Types
+
+JsonObject: TypeAlias = dict[str, JsonValue]
+ObjectDict: TypeAlias = dict[str, object]
+AttachmentPayload: TypeAlias = dict[str, object]
+
+
+def _empty_messages() -> list[BaseMessage]:
+    return []
+
+
+def _empty_tools() -> list[ToolSpec]:
+    return []
+
 
 # MARK: Session Request
 
 
 SWARM_INVOCATION_INTENT_METADATA_KEY = "swarm_invocation_intent"
 SWARM_AGENT_INVOCATION_METADATA_KEY = "swarm_agent_invocation"
-
-
-def _coerce_message_kind(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip().lower()
-    if not normalized:
-        return None
-    if normalized == "user":
-        return "human"
-    if normalized == "assistant":
-        return "ai"
-    return normalized
-
-
-def _extract_message_common_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
-    kwargs: dict[str, Any] = {}
-
-    identifier = payload.get("id")
-    if isinstance(identifier, str) and identifier.strip():
-        kwargs["id"] = identifier
-
-    name = payload.get("name")
-    if isinstance(name, str) and name.strip():
-        kwargs["name"] = name
-
-    response_metadata = payload.get("response_metadata")
-    if isinstance(response_metadata, dict):
-        kwargs["response_metadata"] = response_metadata
-
-    return kwargs
-
-
-def _coerce_human_or_redacted_message(value: Any) -> BaseMessage | Any:
-    if isinstance(value, HumanMessage | RedactedMessage):
-        return value
-
-    payload: dict[str, Any] | None = None
-    if isinstance(value, BaseMessage):
-        if hasattr(value, "model_dump"):
-            dumped = value.model_dump(exclude_none=True)
-            if isinstance(dumped, dict):
-                payload = dumped
-        if payload is None:
-            payload = {
-                "type": getattr(value, "type", None),
-                "content": getattr(value, "content", ""),
-            }
-            additional_kwargs = getattr(value, "additional_kwargs", None)
-            if isinstance(additional_kwargs, dict):
-                payload["additional_kwargs"] = additional_kwargs
-    elif isinstance(value, dict):
-        payload = dict(value)
-
-    if payload is None:
-        return value
-
-    message_kind = _coerce_message_kind(payload.get("type"))
-    if message_kind is None:
-        message_kind = _coerce_message_kind(payload.get("role"))
-    if message_kind not in {"human", "redacted"}:
-        return value
-
-    content = payload.get("content")
-    if content is None:
-        content = ""
-
-    additional_kwargs = payload.get("additional_kwargs")
-    attachments = payload.get("attachments")
-    normalized_attachments = attachments if isinstance(attachments, list) else None
-    common_kwargs = _extract_message_common_kwargs(payload)
-
-    if message_kind == "redacted":
-        return RedactedMessage(
-            content=content,
-            attachments=normalized_attachments,
-            allow_attachment_file_paths=False,
-            additional_kwargs=additional_kwargs,
-            known_pii_values=payload.get("known_pii_values"),
-            **common_kwargs,
-        )
-
-    return HumanMessage(
-        content=content,
-        attachments=normalized_attachments,
-        allow_attachment_file_paths=False,
-        additional_kwargs=additional_kwargs,
-        **common_kwargs,
-    )
 
 
 class SessionRequest(BaseModel):
@@ -135,14 +76,14 @@ class SessionRequest(BaseModel):
     """
 
     messages: list[BaseMessage] = Field(
-        default_factory=list,
+        default_factory=_empty_messages,
         description="List of messages to send to the agent at session start.",
     )
     tools: list[ToolSpec] = Field(
-        default_factory=list,
+        default_factory=_empty_tools,
         description="List of tool specifications to register with the agent.",
     )
-    metadata: dict[str, Any] | None = Field(
+    metadata: JsonObject | None = Field(
         default=None,
         description=(
             "Optional application metadata to associate with the session. "
@@ -196,9 +137,20 @@ class SessionRequest(BaseModel):
             "Mutually exclusive with force_final_tool."
         ),
     )
-    model: Literal["fast", "balanced", "max"] | None = Field(
+    model: Literal["auto", "fast", "balanced", "max"] | None = Field(
         default=None,
-        description="LLM model selection: 'fast', 'balanced', 'max'. Defaults to 'fast'.",
+        description=(
+            "LLM model tier: 'auto' (system selects per stage), 'fast', 'balanced', "
+            "'max'. None is equivalent to 'auto'."
+        ),
+    )
+    force_model: str | None = Field(
+        default=None,
+        description=(
+            "Force a specific model id for ALL LLM invocations, overriding every "
+            "tier/auto selection. Must be an available model id or the request is "
+            "rejected. None disables the override."
+        ),
     )
     reasoning: Literal["minimal", "low", "medium", "high"] | None = Field(
         default=None,
@@ -225,7 +177,7 @@ class SessionRequest(BaseModel):
         default=None,
         description="Maximum number of tools to return from semantic search.",
     )
-    private_data: dict[str, Any] | None = Field(
+    private_data: JsonObject | None = Field(
         default=None,
         description="Private user-provided context data for resolving data dependencies.",
     )
@@ -248,47 +200,43 @@ class SessionRequest(BaseModel):
 
     @field_validator("messages", mode="before")
     @classmethod
-    def _normalize_messages(cls, value: Any) -> Any:
+    def _normalize_messages(cls, value: object) -> object:
         if value is None:
             return []
         if not isinstance(value, list):
             return value
-        return [_coerce_human_or_redacted_message(item) for item in value]
+        return [coerce_human_or_redacted_message(item) for item in cast(list[object], value)]
 
     @field_validator("metadata")
     @classmethod
-    def _reject_reserved_config_metadata_keys(cls, value: Any) -> Any:
-        if value is None or not isinstance(value, dict):
+    def _reject_reserved_config_metadata_keys(cls, value: JsonObject | None) -> JsonObject | None:
+        if value is None:
             return value
-        reserved_memory_keys = sorted(
-            key for key in value if isinstance(key, str) and is_reserved_memory_metadata_key(key)
-        )
+        reserved_memory_keys: list[str] = []
+        reserved_session_keys: list[str] = []
+        for key in value:
+            if is_reserved_memory_metadata_key(key):
+                reserved_memory_keys.append(key)
+            if is_reserved_session_config_metadata_key(key):
+                reserved_session_keys.append(key)
         if reserved_memory_keys:
-            joined = ", ".join(reserved_memory_keys)
-            raise ValueError(
-                "Reserved memory metadata keys are not allowed in metadata; "
-                f"use memory_config instead ({joined})"
-            )
-        reserved_session_keys = sorted(
-            key
-            for key in value
-            if isinstance(key, str) and is_reserved_session_config_metadata_key(key)
-        )
+            joined = ", ".join(sorted(reserved_memory_keys))
+            raise ValueError(f"{_RESERVED_MEMORY_METADATA_ERROR} ({joined})")
         if reserved_session_keys:
-            joined = ", ".join(reserved_session_keys)
-            raise ValueError(
-                "Reserved session-control metadata keys are not allowed in metadata; "
-                f"use typed session config fields instead ({joined})"
-            )
+            joined = ", ".join(sorted(reserved_session_keys))
+            raise ValueError(f"{_RESERVED_SESSION_METADATA_ERROR} ({joined})")
         return value
 
     @field_serializer("tools", when_used="always")
-    def _serialize_tools(self, tools: list[ToolSpec]) -> list[dict[str, Any]]:
-        return [tool.model_dump() for tool in tools]
+    def _serialize_tools(self, tools: list[ToolSpec]) -> list[JsonObject]:
+        return [cast(JsonObject, tool.model_dump(mode="json")) for tool in tools]
 
     @field_serializer("messages", when_used="always")
-    def _serialize_messages(self, messages: list[BaseMessage]) -> list[dict[str, Any]]:
-        return [message.model_dump(mode="json", exclude_none=True) for message in messages]
+    def _serialize_messages(self, messages: list[BaseMessage]) -> list[JsonObject]:
+        return [
+            cast(JsonObject, message.model_dump(mode="json", exclude_none=True))
+            for message in messages
+        ]
 
 
 class SessionStartRequest(BaseModel):
@@ -330,7 +278,7 @@ class RedactionPreviewRequest(BaseModel):
         ...,
         description="RedactedMessage candidate to inspect and normalize on the server.",
     )
-    private_data: dict[str, Any] | None = Field(
+    private_data: JsonObject | None = Field(
         default=None,
         description="Optional existing private_data to merge with newly redacted values.",
     )
@@ -344,18 +292,18 @@ class RedactionPreviewRequest(BaseModel):
 
     @field_validator("message", mode="before")
     @classmethod
-    def _normalize_redacted_message(cls, value: Any) -> Any:
+    def _normalize_redacted_message(cls, value: object) -> object:
         if isinstance(value, RedactedMessage):
             return value
         if not isinstance(value, dict):
             return value
-        payload = dict(value)
+        payload = cast(ObjectDict, cast(dict[object, object], value).copy())
         content = payload.pop("content", "")
         attachments = payload.pop("attachments", None)
         additional_kwargs = payload.pop("additional_kwargs", None)
         return RedactedMessage(
             content=content,
-            attachments=attachments if isinstance(attachments, list) else None,
+            attachments=normalize_attachment_payloads(attachments),
             allow_attachment_file_paths=False,
             additional_kwargs=additional_kwargs,
             **payload,
@@ -363,7 +311,7 @@ class RedactionPreviewRequest(BaseModel):
 
     @field_validator("known_pii_values", mode="before")
     @classmethod
-    def _normalize_known_pii_values(cls, value: Any) -> list[str | PrivateData] | None:
+    def _normalize_known_pii_values(cls, value: object) -> list[str | PrivateData] | None:
         return normalize_known_pii_values(value)
 
 
@@ -378,11 +326,11 @@ class RedactionPreviewResponse(BaseModel):
         default_factory=list,
         description="Private-data keys inserted into the redacted message content.",
     )
-    added_private_data: dict[str, Any] = Field(
+    added_private_data: JsonObject = Field(
         default_factory=dict,
         description="Only the private_data entries added by this preview operation.",
     )
-    merged_private_data: dict[str, Any] = Field(
+    merged_private_data: JsonObject = Field(
         default_factory=dict,
         description="Full private_data after merging existing and newly added values.",
     )
@@ -447,14 +395,14 @@ class SessionResponse(BaseModel):
         description="Timestamp when the session was completed (if applicable).",
     )
     messages: list[BaseMessage] = Field(
-        default_factory=list,
+        default_factory=_empty_messages,
         description="List of messages exchanged between the agent and the client.",
     )
-    metadata: dict[str, Any] | None = Field(
+    metadata: JsonObject | None = Field(
         default=None,
         description="Metadata associated with the session (if available).",
     )
-    result: Any | None = Field(
+    result: object | None = Field(
         default=None,
         description="Result of the session (if applicable).",
     )
@@ -509,7 +457,7 @@ class ToolResumePayload(BaseModel):
             "request event."
         ),
     )
-    result: Any = Field(
+    result: object = Field(
         ...,
         description="Result value produced by the tool execution.",
     )

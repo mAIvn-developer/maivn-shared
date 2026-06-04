@@ -4,17 +4,15 @@ This module provides various formatting strategies for log output,
 including human-readable console formatting and structured JSON formatting.
 """
 
-# MARK: - Imports
-
+# pyright: strict
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, TextIO
+from typing import ClassVar, Final, TextIO
 
 import orjson
 
 from .config import (
-    DEFAULT_BORDER_CHAR,
     DEFAULT_HEADER_WIDTH,
     TIMESTAMP_FORMAT,
 )
@@ -58,32 +56,6 @@ class TextFormatter:
         padding = (width - len(text)) // 2
         return fill_char * padding + text + fill_char * (width - len(text) - padding)
 
-    @staticmethod
-    def create_section_header(
-        title: str, width: int = DEFAULT_HEADER_WIDTH, border_char: str = DEFAULT_BORDER_CHAR
-    ) -> str:
-        """Create a formatted section header.
-
-        Args:
-            title: Header title text
-            width: Total width of the header
-            border_char: Character to use for borders
-
-        Returns:
-            Formatted header string
-        """
-        if len(title) >= width - 4:
-            return border_char * width
-
-        padding = (width - len(title) - 2) // 2
-        return (
-            border_char * padding
-            + " "
-            + title
-            + " "
-            + border_char * (width - len(title) - padding - 2)
-        )
-
 
 # MARK: - Color Formatting
 
@@ -93,43 +65,43 @@ class ColorFormatter:
 
     # MARK: - Basic Styles
 
-    RESET = "\033[0m"
-    BOLD = "\033[1m"
-    DIM = "\033[2m"
-    UNDERLINE = "\033[4m"
+    RESET: ClassVar[str] = "\033[0m"
+    BOLD: ClassVar[str] = "\033[1m"
+    DIM: ClassVar[str] = "\033[2m"
+    UNDERLINE: ClassVar[str] = "\033[4m"
 
     # MARK: - Foreground Colors
 
-    BLACK = "\033[30m"
-    RED = "\033[31m"
-    GREEN = "\033[32m"
-    YELLOW = "\033[33m"
-    BLUE = "\033[34m"
-    MAGENTA = "\033[35m"
-    CYAN = "\033[36m"
-    WHITE = "\033[37m"
+    BLACK: ClassVar[str] = "\033[30m"
+    RED: ClassVar[str] = "\033[31m"
+    GREEN: ClassVar[str] = "\033[32m"
+    YELLOW: ClassVar[str] = "\033[33m"
+    BLUE: ClassVar[str] = "\033[34m"
+    MAGENTA: ClassVar[str] = "\033[35m"
+    CYAN: ClassVar[str] = "\033[36m"
+    WHITE: ClassVar[str] = "\033[37m"
 
     # MARK: - Bright Foreground Colors
 
-    BRIGHT_BLACK = "\033[90m"
-    BRIGHT_RED = "\033[91m"
-    BRIGHT_GREEN = "\033[92m"
-    BRIGHT_YELLOW = "\033[93m"
-    BRIGHT_BLUE = "\033[94m"
-    BRIGHT_MAGENTA = "\033[95m"
-    BRIGHT_CYAN = "\033[96m"
-    BRIGHT_WHITE = "\033[97m"
+    BRIGHT_BLACK: ClassVar[str] = "\033[90m"
+    BRIGHT_RED: ClassVar[str] = "\033[91m"
+    BRIGHT_GREEN: ClassVar[str] = "\033[92m"
+    BRIGHT_YELLOW: ClassVar[str] = "\033[93m"
+    BRIGHT_BLUE: ClassVar[str] = "\033[94m"
+    BRIGHT_MAGENTA: ClassVar[str] = "\033[95m"
+    BRIGHT_CYAN: ClassVar[str] = "\033[96m"
+    BRIGHT_WHITE: ClassVar[str] = "\033[97m"
 
     # MARK: - Background Colors
 
-    BG_BLACK = "\033[40m"
-    BG_RED = "\033[41m"
-    BG_GREEN = "\033[42m"
-    BG_YELLOW = "\033[43m"
-    BG_BLUE = "\033[44m"
-    BG_MAGENTA = "\033[45m"
-    BG_CYAN = "\033[46m"
-    BG_WHITE = "\033[47m"
+    BG_BLACK: ClassVar[str] = "\033[40m"
+    BG_RED: ClassVar[str] = "\033[41m"
+    BG_GREEN: ClassVar[str] = "\033[42m"
+    BG_YELLOW: ClassVar[str] = "\033[43m"
+    BG_BLUE: ClassVar[str] = "\033[44m"
+    BG_MAGENTA: ClassVar[str] = "\033[45m"
+    BG_CYAN: ClassVar[str] = "\033[46m"
+    BG_WHITE: ClassVar[str] = "\033[47m"
 
     # MARK: - Methods
 
@@ -155,27 +127,53 @@ class LogStyles:
 
     # MARK: - Level Colors
 
-    DEBUG = ColorFormatter.BRIGHT_BLACK
-    INFO = ColorFormatter.WHITE
-    WARNING = ColorFormatter.BRIGHT_YELLOW
-    ERROR = ColorFormatter.BRIGHT_RED
-    CRITICAL = ColorFormatter.BRIGHT_WHITE + ColorFormatter.BG_RED
+    DEBUG: ClassVar[str] = ColorFormatter.BRIGHT_BLACK
+    INFO: ClassVar[str] = ColorFormatter.WHITE
+    WARNING: ClassVar[str] = ColorFormatter.BRIGHT_YELLOW
+    ERROR: ClassVar[str] = ColorFormatter.BRIGHT_RED
+    CRITICAL: ClassVar[str] = ColorFormatter.BRIGHT_WHITE + ColorFormatter.BG_RED
 
     # MARK: - Component Colors
 
-    SYSTEM = ColorFormatter.BRIGHT_CYAN
-    AGENT = ColorFormatter.BRIGHT_GREEN
-    NODE = ColorFormatter.BRIGHT_MAGENTA
-    TASK = ColorFormatter.BRIGHT_BLUE
-    TOOL = ColorFormatter.BRIGHT_YELLOW
-    SESSION = ColorFormatter.BRIGHT_WHITE
+    SYSTEM: ClassVar[str] = ColorFormatter.BRIGHT_CYAN
+    AGENT: ClassVar[str] = ColorFormatter.BRIGHT_GREEN
+    NODE: ClassVar[str] = ColorFormatter.BRIGHT_MAGENTA
+    TASK: ClassVar[str] = ColorFormatter.BRIGHT_BLUE
+    TOOL: ClassVar[str] = ColorFormatter.BRIGHT_YELLOW
+    SESSION: ClassVar[str] = ColorFormatter.BRIGHT_WHITE
 
     # MARK: - Execution Styles
 
-    EXECUTION_START = ColorFormatter.BRIGHT_GREEN + ColorFormatter.BOLD
-    EXECUTION_END = ColorFormatter.BRIGHT_BLUE + ColorFormatter.BOLD
-    EXECUTION_ERROR = ColorFormatter.BRIGHT_RED + ColorFormatter.BOLD
-    EXECUTION_HIGHLIGHT = ColorFormatter.BRIGHT_MAGENTA + ColorFormatter.BOLD
+    EXECUTION_START: ClassVar[str] = ColorFormatter.BRIGHT_GREEN + ColorFormatter.BOLD
+    EXECUTION_END: ClassVar[str] = ColorFormatter.BRIGHT_BLUE + ColorFormatter.BOLD
+    EXECUTION_ERROR: ClassVar[str] = ColorFormatter.BRIGHT_RED + ColorFormatter.BOLD
+    EXECUTION_HIGHLIGHT: ClassVar[str] = ColorFormatter.BRIGHT_MAGENTA + ColorFormatter.BOLD
+
+
+# MARK: - Style Lookup
+
+_LOG_STYLE_BY_NAME: Final[dict[str, str]] = {
+    "DEBUG": LogStyles.DEBUG,
+    "INFO": LogStyles.INFO,
+    "WARNING": LogStyles.WARNING,
+    "ERROR": LogStyles.ERROR,
+    "CRITICAL": LogStyles.CRITICAL,
+    "SYSTEM": LogStyles.SYSTEM,
+    "AGENT": LogStyles.AGENT,
+    "NODE": LogStyles.NODE,
+    "TASK": LogStyles.TASK,
+    "TOOL": LogStyles.TOOL,
+    "SESSION": LogStyles.SESSION,
+    "EXECUTION_START": LogStyles.EXECUTION_START,
+    "EXECUTION_END": LogStyles.EXECUTION_END,
+    "EXECUTION_ERROR": LogStyles.EXECUTION_ERROR,
+    "EXECUTION_HIGHLIGHT": LogStyles.EXECUTION_HIGHLIGHT,
+}
+
+
+def resolve_log_style(name: str, default: str = ColorFormatter.WHITE) -> str:
+    """Return a typed log style by name, falling back to ``default``."""
+    return _LOG_STYLE_BY_NAME.get(name, default)
 
 
 # MARK: - Human Readable Formatting
@@ -202,10 +200,10 @@ class HumanReadableFormatter:
         timestamp = TimestampFormatter.format_timestamp()
 
         if use_colors:
-            level_color = getattr(LogStyles, level, ColorFormatter.WHITE)
+            level_color = resolve_log_style(level)
             level_colored = ColorFormatter.colorize_text(f"[{level}]", level_color)
 
-            component_color = getattr(LogStyles, component.upper(), ColorFormatter.WHITE)
+            component_color = resolve_log_style(component.upper())
             component_colored = ColorFormatter.colorize_text(f"[{component}]", component_color)
 
             return f"[{timestamp}] {level_colored} {component_colored} {message}"
@@ -235,7 +233,7 @@ class JSONFormatter:
     """Handles JSON formatting for structured log output."""
 
     @staticmethod
-    def safe_json_dumps(data: Any) -> str:
+    def safe_json_dumps(data: object) -> str:
         """Safely serialize data to JSON string using orjson.
 
         Args:
@@ -262,23 +260,13 @@ class StreamWriter:
             content: Content to write
         """
         try:
-            stream.write(content)
+            _ = stream.write(content)
             stream.flush()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logging must not raise stream failures.
             import sys
 
+            # Last-resort stderr fallback must stay ASCII-only.
             print(f"[MaivnLogger] Failed to write log: {e}", file=sys.stderr)
-
-    @staticmethod
-    def write_json_entry(stream: TextIO, entry: dict[str, Any]) -> None:
-        """Write a JSON log entry to a stream.
-
-        Args:
-            stream: Output stream
-            entry: Log entry data
-        """
-        json_str = JSONFormatter.safe_json_dumps(entry)
-        StreamWriter.write_to_stream(stream, f"{json_str}\n")
 
 
 # MARK: - Exports
@@ -288,6 +276,7 @@ __all__ = [
     "TextFormatter",
     "ColorFormatter",
     "LogStyles",
+    "resolve_log_style",
     "HumanReadableFormatter",
     "JSONFormatter",
     "StreamWriter",

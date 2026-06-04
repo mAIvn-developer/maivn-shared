@@ -1,16 +1,19 @@
 """Swarm action plan models shared across services."""
 
+# pyright: strict
 from __future__ import annotations
 
-from typing import Any, Final, Literal
+from typing import ClassVar, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+
+# MARK: Base Actions
 
 
 class SwarmActionBase(BaseModel):
     """Base fields shared by all swarm actions."""
 
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(populate_by_name=True, extra="ignore")
 
     action_id: str | None = Field(default=None, alias="id")
     action_type: Final[Literal["assignment_agent", "swarm_agent"]]
@@ -26,11 +29,14 @@ class SwarmActionBase(BaseModel):
         return self
 
 
+# MARK: Concrete Actions
+
+
 class AssignmentAgentAction(SwarmActionBase):
     """Action that runs the assignment_agent."""
 
-    goal: str | dict[str, Any] | None = None
-    prompt: str | dict[str, Any] | None = None
+    goal: str | dict[str, JsonValue] | None = None
+    prompt: str | dict[str, JsonValue] | None = None
     capability_hints: list[str] | None = None
     targeted_tools: list[str] | None = None
     force_final_tool: bool = False
@@ -51,8 +57,8 @@ class SwarmAgentAction(SwarmActionBase):
 
     agent_id: str | None = None
     instance_key: str | None = None
-    prompt: str | dict[str, Any] | None = None
-    goal: str | dict[str, Any] | None = None
+    prompt: str | dict[str, JsonValue] | None = None
+    goal: str | dict[str, JsonValue] | None = None
     targeted_tools: list[str] | None = None
     force_final_tool: bool = False
 
@@ -66,19 +72,26 @@ class SwarmAgentAction(SwarmActionBase):
 SwarmAction = AssignmentAgentAction | SwarmAgentAction
 
 
+# MARK: Action Plan
+
+
+def _empty_swarm_actions() -> list[SwarmAction]:
+    return []
+
+
 class SwarmActionPlan(BaseModel):
     """Structured swarm action plan returned by orchestrator_agent."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
-    actions: list[SwarmAction] = Field(default_factory=list)
+    actions: list[SwarmAction] = Field(default_factory=_empty_swarm_actions)
 
     @model_validator(mode="after")
     def _validate_action_plan(self) -> SwarmActionPlan:
         if not self.actions:
-            raise ValueError("actions is required when route='execute_actions'")
+            raise ValueError("SwarmActionPlan requires at least one action")
 
-        final_count = sum(1 for action in self.actions if bool(action.use_as_final_output))
+        final_count = sum(1 for action in self.actions if action.use_as_final_output)
         if final_count > 1:
             raise ValueError("Only one action may have use_as_final_output=True")
 
@@ -86,8 +99,45 @@ class SwarmActionPlan(BaseModel):
         if len(action_ids) != len(set(action_ids)):
             raise ValueError("action_id values must be unique when provided")
 
+        action_id_set = set(action_ids)
+        for action in self.actions:
+            for dependency_id in action.depends_on:
+                if action.action_id == dependency_id:
+                    raise ValueError(f"action_id {dependency_id!r} cannot depend on itself")
+                if dependency_id not in action_id_set:
+                    raise ValueError(f"depends_on references unknown action_id {dependency_id!r}")
+
+        self._validate_acyclic_dependencies(action_ids)
         return self
 
+    def _validate_acyclic_dependencies(self, action_ids: list[str]) -> None:
+        action_id_set = set(action_ids)
+        dependencies_by_id: dict[str, list[str]] = {}
+        for action in self.actions:
+            action_id = action.action_id
+            if action_id is not None and action_id in action_id_set:
+                dependencies_by_id[action_id] = list(action.depends_on)
+
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit(action_id: str) -> None:
+            if action_id in visited:
+                return
+            if action_id in visiting:
+                raise ValueError(f"depends_on cycle detected involving action_id {action_id!r}")
+
+            visiting.add(action_id)
+            for dependency_id in dependencies_by_id.get(action_id, []):
+                visit(dependency_id)
+            visiting.remove(action_id)
+            visited.add(action_id)
+
+        for action_id in action_ids:
+            visit(action_id)
+
+
+# MARK: Public API
 
 __all__ = [
     "SwarmActionBase",
