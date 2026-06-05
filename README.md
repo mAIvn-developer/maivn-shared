@@ -16,6 +16,29 @@ logging abstractions that need to stay consistent across the platform.
 - ✅ Proper dependency inversion
 - ✅ Zero external service dependencies
 
+## Ecosystem
+
+`maivn-shared` provides the shared contracts in the **mAIvn** developer ecosystem. Learn more at
+[maivn.io](https://maivn.io) — or dive into the developer hub at
+[developer.maivn.io](https://developer.maivn.io).
+
+```mermaid
+flowchart TD
+    platform["mAIvn platform<br/>hosted agent API"]
+    sdk["maivn<br/>Python SDK — agents · tools · swarms"]
+    shared["maivn-shared<br/>shared contracts & models"]
+    tools["maivn-tools<br/>optional connector toolsets"]
+    studio["maivn-studio<br/>local studio — run & debug demos"]
+
+    sdk -->|HTTPS + API key| platform
+    sdk -->|depends on| shared
+    tools -->|add_toolset| sdk
+    studio -->|maivn studio CLI| sdk
+
+    classDef current fill:#dbeafe,stroke:#2563eb,stroke-width:2px;
+    class shared current;
+```
+
 ## Installation
 
 ```bash
