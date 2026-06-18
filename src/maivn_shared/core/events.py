@@ -52,6 +52,15 @@ the assistant response stream.
 Payload: ``{"message": str, "assistant_id": str}``
 """
 
+STATUS_MESSAGE_CHUNK_EVENT_NAME: Final[str] = "status_message_chunk"
+"""Incremental chunk for an in-progress status message.
+
+Clients that render live status cards can accumulate ``text`` deltas by
+``status_id`` and finalize the card when the matching ``status_message`` arrives.
+
+Payload: ``{"status_id": str, "assistant_id": str, "text": str}``
+"""
+
 FINAL_EVENT_NAME: Final[str] = "final"
 """Final event indicating execution completion."""
 
@@ -278,6 +287,7 @@ __all__ = [
     "UPDATE_EVENT_NAME",
     "PROGRESS_UPDATE_EVENT_NAME",
     "STATUS_MESSAGE_EVENT_NAME",
+    "STATUS_MESSAGE_CHUNK_EVENT_NAME",
     "FINAL_EVENT_NAME",
     "ERROR_EVENT_NAME",
     # System Tool Events

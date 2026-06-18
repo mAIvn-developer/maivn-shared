@@ -229,7 +229,7 @@ class SessionRequest(BaseModel):
 
     @field_serializer("tools", when_used="always")
     def _serialize_tools(self, tools: list[ToolSpec]) -> list[JsonObject]:
-        return [cast(JsonObject, tool.model_dump(mode="json")) for tool in tools]
+        return [cast(JsonObject, tool.model_dump(mode="json", exclude_none=True)) for tool in tools]
 
     @field_serializer("messages", when_used="always")
     def _serialize_messages(self, messages: list[BaseMessage]) -> list[JsonObject]:

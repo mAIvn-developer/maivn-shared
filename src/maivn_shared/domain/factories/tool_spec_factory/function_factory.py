@@ -38,6 +38,7 @@ def build_tool_spec_from_function(
 
     args_schema = _build_args_schema_from_function(func)
     resolved_metadata = _build_metadata(func, metadata)
+    output_schema = _json_schema_or_none(resolved_metadata.get("return_type"))
 
     return ToolSpec(
         tool_id=tool_id,
@@ -48,6 +49,7 @@ def build_tool_spec_from_function(
         args_schema=args_schema,
         always_execute=always_execute,
         final_tool=final_tool,
+        output_schema=output_schema,
         metadata=cast(JsonSchema, resolved_metadata),
     )
 
@@ -88,6 +90,10 @@ def _build_return_type_schema_from_annotation(return_type: object) -> JsonSchema
         return build_dataclass_schema(return_type)
 
     return build_property_schema(return_type, "")
+
+
+def _json_schema_or_none(value: object) -> JsonSchema | None:
+    return cast(JsonSchema, value) if isinstance(value, dict) and value else None
 
 
 # MARK: - Metadata Building

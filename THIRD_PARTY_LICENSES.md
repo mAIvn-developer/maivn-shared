@@ -2,7 +2,7 @@
 
 **Package**: maivn-shared
 **Distribution**: Public PyPI shared package
-**Report Date**: 2026-06-03
+**Report Date**: 2026-06-18
 **Report Version**: 2.1
 
 ---
@@ -41,7 +41,7 @@ First-party `maivn-*` packages are excluded from the third-party inventory.
 | idna | 3.18 | BSD-3-Clause | Permissive |   |
 | jsonpatch | 1.33 | BSD License | Permissive |   |
 | jsonpointer | 3.1.0 | BSD License | Permissive |   |
-| langchain-core | 1.4.0 | MIT License | Permissive |   |
+| langchain-core | 1.4.7 | MIT License | Permissive |   |
 | langchain-protocol | 0.0.15 | MIT License | Permissive |   |
 | langsmith | 0.8.8 | MIT | Permissive |   |
 | orjson | 3.11.9 | MPL-2.0 AND (Apache-2.0 OR MIT) | Weak Copyleft |   |

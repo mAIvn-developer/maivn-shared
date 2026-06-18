@@ -19,6 +19,7 @@ from pydantic import (
 TypeBaseModel: TypeAlias = type[BaseModel]
 JsonObject: TypeAlias = dict[str, JsonValue]
 ArgsSchema: TypeAlias = TypeBaseModel | BaseModel | JsonObject
+OutputSchema: TypeAlias = JsonObject
 
 # MARK: Tool Type
 
@@ -76,6 +77,10 @@ class ToolSpec(BaseModel):
         ...,
         description="Tool schema without $defs, dependencies in properties",
     )
+    output_schema: SkipValidation[OutputSchema | None] = Field(
+        default=None,
+        description="JSON schema for the tool result, when known.",
+    )
 
     # MARK: - Execution Flags
 
@@ -91,6 +96,13 @@ class ToolSpec(BaseModel):
     final_tool: bool = Field(
         default=False,
         description="Final output of the tool (if applicable)",
+    )
+    schema_only: bool = Field(
+        default=False,
+        description=(
+            "Whether this ToolSpec exists only as a schema definition for another tool. "
+            "Schema-only specs are not independently schedulable execution units."
+        ),
     )
     metadata: JsonObject | None = Field(
         default_factory=dict,
@@ -185,6 +197,9 @@ class ToolSpec(BaseModel):
         return cast(JsonObject, schema.model_json_schema())
 
     def _iter_return_type_dependencies(self) -> Iterator[tuple[str, str | None, str | None]]:
+        if isinstance(self.output_schema, dict):
+            yield from self._iter_dependencies(self.output_schema)
+            return
         schema = self._get_args_schema_dict()
         yield from self._iter_dependencies(schema.get("return_type"))
 
@@ -274,3 +289,9 @@ class ToolSpec(BaseModel):
         if value is None:
             return None
         return str(value)
+
+    @field_serializer("output_schema", when_used="always")
+    def _serialize_output_schema(self, value: object) -> JsonObject | None:
+        if isinstance(value, dict):
+            return cast(JsonObject, value)
+        return None

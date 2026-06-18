@@ -44,7 +44,7 @@ _GOLDEN_DUMP = (
     '"model": "fast", "status_messages": false, "stream_response": true, "tools": '
     '[{"agent_id": "a1", "always_execute": false, "args_schema": {"properties": {}, "type": '
     '"object"}, "description": "searches", "final_tool": false, "metadata": {}, "name": '
-    '"search", "tags": [], "tool_id": "t1", "tool_type": "func"}]}'
+    '"search", "schema_only": false, "tags": [], "tool_id": "t1", "tool_type": "func"}]}'
 )
 
 
