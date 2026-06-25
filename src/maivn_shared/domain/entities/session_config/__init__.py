@@ -10,6 +10,7 @@ from .metadata_keys import (
     RESERVED_SESSION_CONFIG_METADATA_KEYS,
     is_reserved_session_config_metadata_key,
 )
+from .model_config import ModelChoice, ModelConfig, ModelConfigPart, ModelTier
 from .orchestration import (
     FinalOutputMode,
     OrchestrationMode,
@@ -25,6 +26,10 @@ __all__ = [
     "MemoryAssetsConfig",
     "MemoryResourceConfig",
     "MemorySkillConfig",
+    "ModelChoice",
+    "ModelConfig",
+    "ModelConfigPart",
+    "ModelTier",
     "NestedSynthesisMode",
     "OrchestrationMode",
     "RESERVED_SESSION_CONFIG_METADATA_KEYS",

@@ -20,6 +20,8 @@ from .messages import (
 from .pii_whitelist import PIIWhitelist
 from .session_config import (
     MemoryAssetsConfig,
+    ModelConfig,
+    ModelTier,
     SessionExecutionConfig,
     SessionOrchestrationConfig,
     StructuredOutputConfig,
@@ -137,11 +139,11 @@ class SessionRequest(BaseModel):
             "Mutually exclusive with force_final_tool."
         ),
     )
-    model: Literal["auto", "fast", "balanced", "max"] | None = Field(
+    model: ModelTier | ModelConfig | None = Field(
         default=None,
         description=(
-            "LLM model tier: 'auto' (system selects per stage), 'fast', 'balanced', "
-            "'max'. None is equivalent to 'auto'."
+            "LLM model tier ('auto', 'fast', 'balanced', 'max') or scoped ModelConfig. "
+            "None is equivalent to 'auto'."
         ),
     )
     force_model: str | None = Field(

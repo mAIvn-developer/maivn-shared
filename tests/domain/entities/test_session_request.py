@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from maivn_shared.domain.entities.messages import HumanMessage, RedactedMessage
 from maivn_shared.domain.entities.session import SessionRequest
+from maivn_shared.domain.entities.session_config import ModelChoice, ModelConfig
 
 # MARK: Fixtures
 
@@ -136,6 +137,72 @@ def test_session_request_model_accepts_balanced() -> None:
 def test_session_request_model_accepts_max() -> None:
     request = SessionRequest(model="max")
     assert request.model == "max"
+
+
+def test_session_request_model_accepts_scoped_model_config() -> None:
+    request = SessionRequest.model_validate(
+        {
+            "model": {
+                "response": "balanced",
+                "thinking": {"model_id": "claude-opus-4-5"},
+                "compose_artifact": {"model_id": "gpt-5.4"},
+                "repl": "fast",
+            }
+        }
+    )
+
+    assert isinstance(request.model, ModelConfig)
+    assert request.model.response == ModelChoice(tier="balanced")
+    assert request.model.thinking == ModelChoice(model_id="claude-opus-4-5")
+    assert request.model.compose_artifact == ModelChoice(model_id="gpt-5.4")
+    assert request.model.repl == ModelChoice(tier="fast")
+
+
+def test_session_request_model_config_accepts_think_alias() -> None:
+    request = SessionRequest.model_validate(
+        {
+            "model": {
+                "response": "auto",
+                "think": "max",
+            }
+        }
+    )
+
+    assert isinstance(request.model, ModelConfig)
+    assert request.model.thinking == ModelChoice(tier="max")
+
+
+def test_session_request_model_config_dumps_explicit_model_ids() -> None:
+    request = SessionRequest(
+        model=ModelConfig(
+            response=ModelChoice(model_id="claude-haiku-4-5-20251001"),
+            repl=ModelChoice(tier="max"),
+        )
+    )
+
+    dumped = request.model_dump(mode="json", exclude_none=True)
+
+    assert dumped["model"] == {
+        "response": {"model_id": "claude-haiku-4-5-20251001"},
+        "repl": {"tier": "max"},
+    }
+
+
+def test_session_request_model_config_iterates_model_ids() -> None:
+    config = ModelConfig.model_validate(
+        {
+            "response": {"model_id": "response-model"},
+            "thinking": "fast",
+            "compose_artifact": "artifact-model",
+        }
+    )
+
+    assert config.model_ids() == ["response-model", "artifact-model"]
+
+
+def test_model_choice_rejects_both_tier_and_model_id() -> None:
+    with pytest.raises(ValidationError):
+        ModelChoice(tier="fast", model_id="claude-opus-4-5")
 
 
 def test_session_request_model_rejects_invalid_tier() -> None:
