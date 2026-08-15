@@ -9,9 +9,9 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 # MARK: Types
 
-ModelTier = Literal["auto", "fast", "balanced", "max"]
+ModelTier = Literal["auto", "fast", "balanced", "max", "ultra"]
 ModelConfigPart = Literal["response", "thinking", "compose_artifact", "repl"]
-_MODEL_TIERS: frozenset[str] = frozenset(("auto", "fast", "balanced", "max"))
+_MODEL_TIERS: frozenset[str] = frozenset(("auto", "fast", "balanced", "max", "ultra"))
 
 
 # MARK: Model Choice

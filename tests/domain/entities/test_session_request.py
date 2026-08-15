@@ -139,6 +139,21 @@ def test_session_request_model_accepts_max() -> None:
     assert request.model == "max"
 
 
+def test_session_request_model_accepts_ultra() -> None:
+    request = SessionRequest(model="ultra")
+    assert request.model == "ultra"
+
+
+def test_model_choice_ultra_round_trips_through_json() -> None:
+    choice = ModelChoice(tier="ultra")
+
+    serialized = choice.model_dump_json(exclude_none=True)
+    restored = ModelChoice.model_validate_json(serialized)
+
+    assert serialized == '{"tier":"ultra"}'
+    assert restored == choice
+
+
 def test_session_request_model_accepts_scoped_model_config() -> None:
     request = SessionRequest.model_validate(
         {

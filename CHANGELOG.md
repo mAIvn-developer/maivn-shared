@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-08-14
+
+### Added
+
+- Added the provider-neutral `ultra` model tier to the shared session and
+  scoped-model contracts.
+
+## [0.4.2] - 2026-06-25
+
+### Added
+
+- Added and publicly exported the scoped model-selection contracts:
+  `ModelChoice`, `ModelConfig`, `ModelConfigPart`, and `ModelTier`.
+
+### Changed
+
+- Expanded `SessionRequest.model` to accept either a provider-neutral tier or
+  a scoped `ModelConfig`.
+- Raised the minimum `langsmith` version to `0.8.18`.
+
+## [0.4.1] - 2026-06-18
+
+### Added
+
+- Added the public `status_message_chunk` event for incremental status-card
+  updates.
+- Added `output_schema` and `schema_only` tool-spec contracts, including
+  output-schema dependency discovery and serialization.
+
+### Changed
+
+- Tool specs now omit unset fields when serialized in a `SessionRequest`.
+- Added the public developer-documentation URL to the package metadata.
+
 ## [0.4.0] - 2026-06-04
 
 ### Added

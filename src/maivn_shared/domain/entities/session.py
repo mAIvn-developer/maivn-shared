@@ -142,7 +142,7 @@ class SessionRequest(BaseModel):
     model: ModelTier | ModelConfig | None = Field(
         default=None,
         description=(
-            "LLM model tier ('auto', 'fast', 'balanced', 'max') or scoped ModelConfig. "
+            "LLM model tier ('auto', 'fast', 'balanced', 'max', 'ultra') or scoped ModelConfig. "
             "None is equivalent to 'auto'."
         ),
     )
